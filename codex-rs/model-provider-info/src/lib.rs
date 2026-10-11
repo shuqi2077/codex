@@ -655,6 +655,19 @@ pub const DEFAULT_OLLAMA_PORT: u16 = 11434;
 
 pub const LMSTUDIO_OSS_PROVIDER_ID: &str = "lmstudio";
 pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
+pub const RUDA_PROVIDER_ID: &str = "ruda";
+
+pub fn create_ruda_provider(base_url: &str) -> ModelProviderInfo {
+    let base_url = base_url.trim_end_matches('/');
+    let mut provider = create_oss_provider_with_base_url(base_url, WireApi::Responses);
+    provider.name = "RUDA".into();
+    provider.model_catalog_url = Some(format!("{base_url}/codex/models").into());
+    provider.capabilities = Some(ModelProviderCapabilities {
+        external_web_access: Some(false),
+        remote_compaction: Some(RemoteCompactionSupport::Unsupported),
+    });
+    provider
+}
 
 /// Built-in default provider list.
 pub fn built_in_model_providers(
@@ -671,6 +684,13 @@ pub fn built_in_model_providers(
     // open source ("oss") providers by default. Users are encouraged to add to
     // `model_providers` in config.toml to add their own providers.
     [
+        (
+            RUDA_PROVIDER_ID,
+            create_ruda_provider(
+                &std::env::var("RUDA_BASE_URL")
+                    .unwrap_or_else(|_| "http://127.0.0.1:8000/v1".into()),
+            ),
+        ),
         (OPENAI_PROVIDER_ID, openai_provider),
         (AMAZON_BEDROCK_PROVIDER_ID, amazon_bedrock_provider),
         (
@@ -701,6 +721,10 @@ pub fn merge_configured_model_providers(
     configured_model_providers: HashMap<String, ModelProviderInfo>,
 ) -> Result<HashMap<String, ModelProviderInfo>, String> {
     for (key, mut provider) in configured_model_providers {
+        if key == RUDA_PROVIDER_ID {
+            model_providers.insert(key, provider);
+            continue;
+        }
         if matches!(
             key.as_str(),
             AMAZON_BEDROCK_PROVIDER_ID | AMAZON_BEDROCK_RUNTIME_PROVIDER_ID

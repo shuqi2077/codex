@@ -32,6 +32,8 @@ use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
+#[path = "client_ruda.rs"]
+mod ruda;
 #[path = "client_tool_metadata.rs"]
 mod tool_metadata;
 
@@ -1064,6 +1066,9 @@ impl ModelClient {
             }
         }
         let client_metadata = responses_metadata.client_metadata(include_internal);
+        if self.state.provider.info().name == "RUDA" {
+            ruda::prepare_input(&mut input);
+        }
         let request = ResponsesApiRequest {
             model: model_info.slug.clone(),
             input,

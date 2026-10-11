@@ -1,4 +1,31 @@
 use super::*;
+
+#[test]
+fn ruda_provider_uses_native_responses_catalog_and_local_compaction() {
+    let provider = create_ruda_provider("http://127.0.0.1:8000/v1/");
+    assert_eq!(provider.name, "RUDA");
+    assert_eq!(
+        provider.base_url.as_deref(),
+        Some("http://127.0.0.1:8000/v1")
+    );
+    assert_eq!(
+        provider.model_catalog_url,
+        Some("http://127.0.0.1:8000/v1/codex/models".into())
+    );
+    assert!(!provider.requires_openai_auth);
+    assert!(!provider.supports_websockets);
+    assert_eq!(
+        provider.capabilities.unwrap().remote_compaction,
+        Some(RemoteCompactionSupport::Unsupported)
+    );
+    let configured = create_ruda_provider("http://ruda-host:9000/v1");
+    let providers = merge_configured_model_providers(
+        built_in_model_providers(None),
+        HashMap::from([(RUDA_PROVIDER_ID.into(), configured.clone())]),
+    )
+    .unwrap();
+    assert_eq!(providers[RUDA_PROVIDER_ID], configured);
+}
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::AbsolutePathBufGuard;
 use pretty_assertions::assert_eq;

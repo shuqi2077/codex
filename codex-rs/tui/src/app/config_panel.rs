@@ -45,14 +45,9 @@ impl App {
             }
         };
 
-        let requires_restart = matches!(
-            preference,
-            ConfigPreference::Toggle { setting, .. } if setting.requires_restart()
-        );
-        if !requires_restart {
-            preference.adopt(&mut self.local_settings.tui, &resolved.tui);
-            preference.adopt(&mut self.chat_widget.local_settings.tui, &resolved.tui);
-        }
+        preference.adopt(&mut self.local_settings.tui, &resolved.tui);
+        self.chat_widget
+            .apply_config_preference(preference, &resolved.tui);
         if matches!(
             preference,
             ConfigPreference::Toggle {
@@ -67,7 +62,7 @@ impl App {
         self.local_settings.custom_notification_filters = resolved.custom_notification_filters;
         self.chat_widget.local_settings.custom_notification_filters =
             resolved.custom_notification_filters;
-        self.chat_widget.config_panel_tui = resolved.tui.clone();
+        preference.adopt(&mut self.chat_widget.config_panel_tui, &resolved.tui);
         if matches!(
             preference,
             ConfigPreference::Toggle {
@@ -95,9 +90,7 @@ impl App {
             ConfigPreference::ResumeDirectory(mode) => resolved.tui.resume_cwd == mode,
         };
         let notice = if !effective {
-            "Saved · another config layer or system preference overrides this value"
-        } else if requires_restart {
-            "Saved · restart Codex to apply"
+            Some("Saved · overridden by config or system setting")
         } else if matches!(
             preference,
             ConfigPreference::Toggle {
@@ -105,12 +98,17 @@ impl App {
                 ..
             }
         ) {
-            "Saved · applies to new composers"
+            Some("Saved · applies to new composers")
         } else {
-            "Saved"
+            None
         };
-        self.chat_widget
-            .refresh_config_panel(/*notice*/ Some(notice.to_string()));
+        let notice = notice.map(str::to_string);
+        if effective {
+            self.chat_widget
+                .refresh_config_panel_after_effective_save(notice, preference);
+        } else {
+            self.chat_widget.refresh_config_panel(notice);
+        }
         tui.frame_requester().schedule_frame();
     }
 }
@@ -119,7 +117,7 @@ impl App {
     pub(super) fn schedule_config_notification_test(&mut self) {
         if self.config_notification_test_pending.is_some() {
             self.chat_widget.refresh_config_panel(/*notice*/ Some(
-                "A test is already scheduled · switch to another app".into(),
+                "Test already scheduled · switch apps".into(),
             ));
             return;
         }
@@ -128,9 +126,9 @@ impl App {
             .wrapping_add(/*rhs*/ 1);
         let generation = self.config_notification_test_generation;
         self.config_notification_test_pending = Some(generation);
-        self.chat_widget.refresh_config_panel(/*notice*/ Some(
-            "Test scheduled in 5 seconds · switch to another app".into(),
-        ));
+        self.chat_widget.refresh_config_panel(
+            /*notice*/ Some("Test scheduled in 5s · switch apps".into()),
+        );
         let tx = self.app_event_tx.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(/*secs*/ 5)).await;
@@ -144,14 +142,14 @@ impl App {
         }
         self.config_notification_test_pending = None;
         let notice = if !tui.notify_test("Codex notification test") {
-            "Could not send the notification test · check the terminal connection"
+            "Could not send test · check terminal connection"
         } else if codex_terminal_detection::terminal_info().name
             == codex_terminal_detection::TerminalName::Ghostty
             && tui.is_terminal_focused()
         {
-            "Test sent to terminal · Ghostty hides banners while focused; switch apps and retry"
+            "Test sent · Ghostty hides banners while focused"
         } else {
-            "Test sent to terminal · delivery depends on terminal and system settings"
+            "Test sent · check terminal/system settings"
         };
         if !self
             .chat_widget

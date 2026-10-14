@@ -6,7 +6,10 @@
 mod input;
 mod render;
 mod toggle;
+pub(crate) use render::EFFECTS_VIEW_ID;
 pub(crate) use render::copy_on_select;
+pub(crate) use render::effects;
+pub(crate) use render::effects_with_toggle_states;
 pub(crate) use render::notification_condition;
 pub(crate) use render::resume_directory;
 pub(crate) use render::right_click_paste;
@@ -31,8 +34,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
 
-const RIGHT_CLICK_PASTE_DESCRIPTION: &str =
-    "Paste when nothing is selected. Auto follows the platform default; On also enables macOS.";
+const RIGHT_CLICK_PASTE_DESCRIPTION: &str = "Paste when nothing is selected, with Auto following platform defaults and On also enabling macOS";
 
 pub(crate) struct ConfigPanelUpdate {
     pub(crate) tui: Tui,
@@ -52,6 +54,7 @@ struct PickerState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ConfigEditor {
     Theme,
+    Effects,
     StatusLine,
     TerminalTitle,
     Keyboard,
@@ -174,7 +177,9 @@ impl ConfigEditor {
                 NotificationCondition::Always => "Always",
             }
             .to_string(),
-            Self::StatusLine | Self::TerminalTitle | Self::Keyboard => "Configure".to_string(),
+            Self::Effects | Self::StatusLine | Self::TerminalTitle | Self::Keyboard => {
+                "Configure".to_string()
+            }
         };
         ConfigSettingValue::Editor {
             label,
@@ -220,16 +225,6 @@ struct ConfigSetting {
     value: ConfigSettingValue,
 }
 
-impl ConfigSetting {
-    fn display_label(&self) -> String {
-        if matches!(self.value, ConfigSettingValue::DependentToggle { .. }) {
-            format!("    {}", self.label)
-        } else {
-            self.label.to_string()
-        }
-    }
-}
-
 enum ConfigSettingValue {
     Toggle {
         setting: ConfigToggle,
@@ -261,7 +256,7 @@ impl ConfigSettingValue {
                 ..
             } => if *enabled { "[x] On" } else { "[ ] Off" }.to_string(),
             Self::Editor { label, .. } => format!("{label} ›"),
-            Self::NotificationTest => "Send in 5s ›".to_string(),
+            Self::NotificationTest => "Send in 5s".to_string(),
             Self::DependentToggle {
                 dependency_met: false,
                 ..
@@ -280,36 +275,21 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
         ConfigSetting {
             section: ConfigSection::Appearance,
             label: "Theme",
-            description: "Choose a syntax color palette with a live preview.",
+            description: "Choose a syntax color palette with a live preview",
             keywords: "colors dark light palette",
             value: ConfigEditor::Theme.value(tui, status),
         },
         ConfigSetting {
             section: ConfigSection::Appearance,
-            label: "Animations",
-            description: "Animate the welcome screen, working indicator, and transitions. Restart Codex to apply.",
-            keywords: "motion accessibility spinner",
-            value: ConfigSettingValue::Toggle {
-                setting: ConfigToggle::Animations,
-                enabled: ConfigToggle::Animations.enabled(tui),
-            },
-        },
-        ConfigSetting {
-            section: ConfigSection::Appearance,
-            label: "Composer stars",
-            description: "Animate stars in the composer. Requires animations and a restart.",
-            keywords: "effects starfield stars motion",
-            value: ConfigSettingValue::DependentToggle {
-                setting: ConfigToggle::ComposerStars,
-                enabled: ConfigToggle::ComposerStars.enabled(tui),
-                dependency_met: tui.animations,
-                unavailable_reason: "Turn on animations, then restart Codex to enable composer stars.",
-            },
+            label: "Effects",
+            description: "Configure animations and composer effects",
+            keywords: "animations motion accessibility spinner starfield stars composer stars",
+            value: ConfigEditor::Effects.value(tui, status),
         },
         ConfigSetting {
             section: ConfigSection::Appearance,
             label: "Tips",
-            description: "Show helpful shortcuts and suggestions. Restart Codex to apply.",
+            description: "Show helpful shortcuts and suggestions",
             keywords: "welcome hints tooltips",
             value: ConfigSettingValue::Toggle {
                 setting: ConfigToggle::Tips,
@@ -319,7 +299,7 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
         ConfigSetting {
             section: ConfigSection::Appearance,
             label: "Status line colors",
-            description: "Use theme colors for the model, branch, and other status line fields.",
+            description: "Use theme colors for the model, branch, and other status line details",
             keywords: "statusline footer colour",
             value: ConfigSettingValue::Toggle {
                 setting: ConfigToggle::StatusLineColors,
@@ -328,26 +308,26 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
         },
         ConfigSetting {
             section: ConfigSection::Appearance,
-            label: "Status line fields",
-            description: "Choose and reorder the information below the composer.",
+            label: "Status line display",
+            description: "Choose and reorder the information below the composer",
             keywords: "statusline footer model branch context",
             value: ConfigEditor::StatusLine.value(tui, status),
         },
         ConfigSetting {
             section: ConfigSection::Appearance,
-            label: "Terminal title fields",
-            description: "Choose and reorder the information in your terminal tab or window title.",
+            label: "Terminal title display",
+            description: "Choose and reorder the information in your terminal tab or window title",
             keywords: "title tab window name",
             value: ConfigEditor::TerminalTitle.value(tui, status),
         },
         ConfigSetting {
             section: ConfigSection::Notifications,
             label: "Notifications",
-            description: "Let your terminal notify you when a turn finishes or approval is needed.",
+            description: "Let your terminal notify you when a turn finishes or approval is needed",
             keywords: "alerts bell completion approval",
             value: if status.custom_notification_filters {
                 ConfigSettingValue::Unavailable {
-                    reason: "Event-specific notifications are configured. Edit them in config.toml.",
+                    reason: "Event-specific notifications are configured in config.toml",
                 }
             } else {
                 ConfigSettingValue::Toggle {
@@ -359,34 +339,34 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
         ConfigSetting {
             section: ConfigSection::Notifications,
             label: "Notify when",
-            description: "Only notify while you are away, or allow notifications while this terminal is focused too.",
+            description: "Notify only while you are away or while this terminal is focused too",
             keywords: "focus alerts background always unfocused",
             value: if notifications_enabled {
                 ConfigEditor::NotificationCondition.value(tui, status)
             } else {
                 ConfigSettingValue::Unavailable {
-                    reason: "Turn on notifications to choose when they appear.",
+                    reason: "Turn on notifications to choose when they appear",
                 }
             },
         },
         ConfigSetting {
             section: ConfigSection::Notifications,
             label: "Test notification",
-            description: "Sends in 5 seconds. Switch apps: your terminal may hide notifications while focused.",
+            description: "Send in 5 seconds so you can switch apps before the notification appears",
             keywords: "alerts bell sound test",
             value: ConfigSettingValue::NotificationTest,
         },
         ConfigSetting {
             section: ConfigSection::Input,
             label: "Keyboard shortcuts",
-            description: "Browse actions and remap their keys.",
+            description: "Browse actions and remap their keys",
             keywords: "keymap bindings hotkeys",
             value: ConfigEditor::Keyboard.value(tui, status),
         },
         ConfigSetting {
             section: ConfigSection::Input,
             label: "Start in Vim mode",
-            description: "Applies to new composers. Use /vim to switch the current composer.",
+            description: "Start new composers in Vim mode and use /vim for the current composer",
             keywords: "editor modal normal",
             value: ConfigSettingValue::Toggle {
                 setting: ConfigToggle::StartInVimMode,
@@ -396,7 +376,7 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
         ConfigSetting {
             section: ConfigSection::Input,
             label: "Paste detection",
-            description: "Recognize pasted-text bursts and keep multiline input together. Restart Codex to apply.",
+            description: "Recognize pasted-text bursts and keep multiline input together",
             keywords: "burst clipboard multiline",
             value: ConfigSettingValue::Toggle {
                 setting: ConfigToggle::PasteDetection,
@@ -406,7 +386,7 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
         ConfigSetting {
             section: ConfigSection::Sessions,
             label: "Automatic recaps",
-            description: "Prepare recaps while the terminal is unfocused. Restart Codex to apply.",
+            description: "Prepare recaps while the terminal is unfocused",
             keywords: "summary background",
             value: ConfigSettingValue::Toggle {
                 setting: ConfigToggle::AutomaticRecaps,
@@ -416,34 +396,34 @@ fn settings(tui: &Tui, status: ConfigPanelStatus) -> Vec<ConfigSetting> {
         ConfigSetting {
             section: ConfigSection::Sessions,
             label: "Session picker layout",
-            description: "Choose tighter rows or a roomier list when resuming and forking conversations.",
+            description: "Choose tighter rows or a roomier list when resuming and forking conversations",
             keywords: "dense comfortable spacing resume fork",
             value: ConfigEditor::SessionPickerLayout.value(tui, status),
         },
         ConfigSetting {
             section: ConfigSection::Sessions,
             label: "Resume directory",
-            description: "Choose which working directory to use when the current directory and saved session differ.",
+            description: "Choose which working directory to use when the current directory and saved session differ",
             keywords: "cwd folder path fork ask",
             value: ConfigEditor::ResumeDirectory.value(tui, status),
         },
         ConfigSetting {
             section: ConfigSection::TextSelection,
             label: "Copy on select",
-            description: "Copy transcript selections on release. Auto uses terminal defaults.",
+            description: "Copy transcript, footer, and composer selections on release; Auto follows terminal defaults",
             keywords: "clipboard mouse selection automatic drag",
             value: ConfigEditor::CopyOnSelect.value(tui, status),
         },
         ConfigSetting {
             section: ConfigSection::TextSelection,
             label: "Deselect after copy",
-            description: "Remove the selection highlight after Copy on select succeeds.",
+            description: "Remove read-only transcript and footer highlights after automatic copy succeeds",
             keywords: "clipboard deselect clear highlight automatic mouse selection",
             value: ConfigSettingValue::DependentToggle {
                 setting: ConfigToggle::CopyOnSelectClearSelection,
                 enabled: ConfigToggle::CopyOnSelectClearSelection.enabled(tui),
                 dependency_met: status.copy_on_select,
-                unavailable_reason: "Turn on Copy on select to deselect after copying.",
+                unavailable_reason: "Turn on Copy on select to deselect after copying",
             },
         },
         ConfigSetting {

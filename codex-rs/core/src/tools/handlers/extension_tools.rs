@@ -195,7 +195,7 @@ async fn to_extension_call<'a>(
     let codex_turn_metadata = invocation
         .turn
         .turn_metadata_state
-        .current_meta_value_for_mcp_request(ExecutionMetadata::from_settings(
+        .current_meta_value_for_extension_request(ExecutionMetadata::from_settings(
             &invocation.step_context.settings,
         ))
         .and_then(|metadata| to_ascii_json_string(&metadata).ok());

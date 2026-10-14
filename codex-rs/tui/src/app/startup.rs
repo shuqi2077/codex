@@ -889,6 +889,7 @@ See the Codex keymap documentation for supported actions and examples."
             config_notification_test_pending: None,
             model_catalog,
             session_telemetry: session_telemetry.clone(),
+            terminal_size_tags: tui.terminal_size_tags.clone(),
             app_event_tx,
             chat_widget,
             workspace_command_runner: Some(workspace_command_runner),
@@ -1160,6 +1161,9 @@ See the Codex keymap documentation for supported actions and examples."
             );
         }
 
+        let mut last_screen_size = tui.terminal.last_known_screen_size;
+        let mut settled_size_tags = crate::terminal_size_telemetry::tags(last_screen_size);
+        let mut pending_resize: Option<(ratatui::layout::Size, Instant)> = None;
         let mut listen_for_app_server_events = true;
         let mut reconnect = None;
         let mut waiting_for_initial_session_configured = wait_for_initial_session_configured;
@@ -1263,6 +1267,19 @@ See the Codex keymap documentation for supported actions and examples."
                             && has_pending_app_events
                         || (!waiting_for_initial_session_configured
                             && app.has_queued_startup_protected_request());
+                // The screen cache is physical geometry, not the inline viewport. This also
+                // notices the final size after returning from a standalone nested screen.
+                let size = tui.terminal.last_known_screen_size;
+                if !crate::terminal_size_telemetry::enabled(&app.config)
+                    || app.terminal_size_tags.is_empty()
+                {
+                    pending_resize = None;
+                    settled_size_tags = crate::terminal_size_telemetry::tags(size);
+                } else if size != last_screen_size {
+                    pending_resize =
+                        Some((size, Instant::now() + Duration::from_secs(/*secs*/ 15)));
+                }
+                last_screen_size = size;
                 let rate_limit_poll_deadline = app
                     .chat_widget
                     .rate_limit_refresh_interval()
@@ -1386,6 +1403,28 @@ See the Codex keymap documentation for supported actions and examples."
                                 if let Ok(mut state) = app.agents_overview.view_state.lock() {
                                     state.connection_notice = Some("Reconnect failed — agent list is stale; relaunch to retry");
                                 }
+                            }
+                        }
+                        AppRunControl::Continue
+                    }
+                    () = async {
+                        match pending_resize {
+                            Some((_, deadline)) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        if let Some((expected, _)) = pending_resize.take()
+                            && crate::terminal_size_telemetry::enabled(&app.config)
+                        {
+                            let actual = crate::terminal_size_telemetry::read_size();
+                            if actual != expected {
+                                pending_resize = Some((actual, Instant::now() + Duration::from_secs(/*secs*/ 15)));
+                            } else {
+                                let tags = crate::terminal_size_telemetry::tags(actual);
+                                if tags != settled_size_tags {
+                                    crate::terminal_size_telemetry::record(&app.terminal_size_tags, &app.config, "resize", actual);
+                                }
+                                settled_size_tags = tags;
                             }
                         }
                         AppRunControl::Continue

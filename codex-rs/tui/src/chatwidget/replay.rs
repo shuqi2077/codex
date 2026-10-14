@@ -146,7 +146,7 @@ impl ChatWidget {
                 self.warning_display_state.startup_complete = true;
                 self.turn_lifecycle.last_turn_id = Some(turn_id.clone());
                 self.last_non_retry_error = None;
-                self.on_task_started();
+                self.on_replayed_task_started(started_at);
             }
             let trailing_reasoning_id = (status == TurnStatus::InProgress)
                 .then(|| items.last())

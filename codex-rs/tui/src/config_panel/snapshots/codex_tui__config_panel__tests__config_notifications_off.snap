@@ -1,21 +1,18 @@
 ---
 source: tui/src/config_panel/config_panel_tests.rs
-assertion_line: 159
 expression: "render(&panel, 100)"
 ---
 
   Configuration
-  Changes save automatically; some apply after restarting Codex.
-  Settings in this group: 3.
+  Changes save automatically
 
    Appearance   Notifications   Input   Sessions   Text selection
 
-› Notifications        [ ] Off              Let your terminal notify you when a turn finishes or ap…
-  Notify when          Unavailable          Turn on notifications to choose when they appear.
-  Test notification    Send in 5s ›         Sends in 5 seconds. Switch apps: your terminal may hide…
+  Notifications         [ ] Off              Let your terminal notify you when a turn finishes or a…
+  Notify when           Unavailable          Turn on notifications to choose when they appear
+› Test notification     Send in 5s           Send in 5 seconds so you can switch apps before the no…
 
 
 
 
-
-  left/right group · / search · enter edit setting · esc close
+  left/right group · / search · enter test · esc clear search/close

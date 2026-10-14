@@ -17,6 +17,7 @@ use codex_prompts::ResolvedIncrementalToolMessages;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::error::Result;
 use codex_protocol::models::ContentItemKind;
+use codex_protocol::models::ContentItemMetadata;
 use codex_protocol::models::ResponseItem;
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -187,8 +188,11 @@ impl WorldStateSection for TopLevelToolsState {
                     text
                 };
                 if !text.is_empty() {
-                    namespace_updates
-                        .push(WorldStateUpdate::fragment(DeveloperInstructions::new(text)));
+                    namespace_updates.push(WorldStateUpdate::fragment(
+                        DeveloperInstructions::new(text).with_metadata(ContentItemMetadata::tool(
+                            Some(name.to_string().into()),
+                        )),
+                    ));
                 }
             }
         }

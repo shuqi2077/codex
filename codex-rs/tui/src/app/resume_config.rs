@@ -229,6 +229,10 @@ impl App {
                 ));
                 AppRunControl::Continue
             })?;
+            #[cfg(target_os = "windows")]
+            if result.directory_trust_persisted && self.current_displayed_thread_id().is_none() {
+                self.windows_sandbox.prompt_after_trust = true;
+            }
             // Directory changes review hooks once, after attaching the destination.
             if result.directory_trust_persisted
                 && options.resumed_thread.is_none()

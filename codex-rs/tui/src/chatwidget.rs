@@ -1950,6 +1950,10 @@ impl ChatWidget {
             .unwrap_or_default()
     }
 
+    pub(crate) fn last_turn_id(&self) -> Option<&str> {
+        self.turn_lifecycle.last_turn_id.as_deref()
+    }
+
     pub(crate) fn thread_id(&self) -> Option<ThreadId> {
         self.thread_id
     }

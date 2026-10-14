@@ -7,12 +7,12 @@ fn policy_preserves_explicit_modes_and_terminal_ownership() {
     use VscodeDetection::Other;
     use VscodeDetection::Unknown;
     use VscodeDetection::VsCode;
-    const SSH_UNAVAILABLE: &str = "Unavailable over SSH. Use your terminal's paste command.";
-    const VSCODE_UNAVAILABLE: &str = "VS Code handles pasting. Use its terminal paste command.";
+    const SSH_UNAVAILABLE: &str = "Unavailable over SSH; use your terminal's paste command";
+    const VSCODE_UNAVAILABLE: &str = "VS Code handles pasting; use its terminal paste command";
     const WSL_AUTO_UNAVAILABLE: &str =
-        "Auto cannot identify this WSL terminal. Use On or your terminal's paste command.";
+        "Auto cannot identify this WSL terminal; use On or your terminal's paste command";
     const INLINE_UNAVAILABLE: &str =
-        "Unavailable in inline mode. Use your terminal's paste command.";
+        "Unavailable in inline mode; use your terminal's paste command";
     let on = if cfg!(target_os = "android") {
         Err("Unavailable on Android")
     } else {
@@ -84,9 +84,15 @@ async fn pending_primary_paste_survives_release_but_not_other_input() {
         (MouseEventKind::ScrollDown, false),
     ] {
         app.pending_right_click_paste = Some(PendingPaste {
-            thread: None,
-            draft: (String::new(), 0),
+            target: (
+                None,
+                crate::bottom_pane::ClipboardPasteTarget::Draft(
+                    String::new(),
+                    crate::bottom_pane::TextArea::new().edit_target(),
+                ),
+            ),
             source: PasteSource::Primary,
+            shortcut: None,
             _request: Arc::new(()),
         });
         app.invalidate_right_click_paste(&TuiEvent::Mouse(MouseEvent {

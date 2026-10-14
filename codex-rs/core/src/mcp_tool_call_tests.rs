@@ -41,6 +41,7 @@ use codex_protocol::protocol::McpInvocation;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::TurnEnvironmentSelection;
+use codex_protocol::turn_input::ResponsesApiClientMetadataUpdate;
 use codex_utils_path_uri::PathUri;
 use core_test_support::hooks::trusted_config_layer_stack;
 use core_test_support::responses::ev_assistant_message;
@@ -1087,15 +1088,19 @@ async fn mcp_tool_call_request_meta_includes_turn_metadata_for_custom_server() {
     let (_, turn_context) = make_session_and_context().await;
     let turn_context = Arc::new(turn_context);
     let step_context = StepContext::for_test(Arc::clone(&turn_context));
+    let client_metadata = HashMap::from([
+        (
+            "node_repl_auto_review_required".to_string(),
+            "true".to_string(),
+        ),
+        ("node_repl_disabled".to_string(), "true".to_string()),
+    ]);
     turn_context
         .turn_metadata_state
-        .set_responsesapi_client_metadata(HashMap::from([
-            (
-                "node_repl_auto_review_required".to_string(),
-                "true".to_string(),
-            ),
-            ("node_repl_disabled".to_string(), "true".to_string()),
-        ]));
+        .update_responsesapi_client_metadata(ResponsesApiClientMetadataUpdate {
+            replacement: Some(client_metadata),
+            ..Default::default()
+        });
     let expected_turn_metadata = expected_mcp_turn_metadata(&turn_context);
 
     let meta = build_mcp_tool_call_request_meta(
@@ -2944,7 +2949,13 @@ async fn permission_request_hook_allows_mcp_tool_call() {
     )
     .await;
 
-    assert_eq!(decision, Some(ReviewDecision::Approved));
+    assert_eq!(
+        decision,
+        Some(McpToolApproval {
+            decision: ReviewDecision::Approved,
+            source: Some(ApprovalResolutionSource::Hook),
+        })
+    );
     let log = std::fs::read_to_string(log_path).expect("read MCP permission hook log");
     let inputs = log
         .lines()
@@ -3015,7 +3026,13 @@ async fn permission_request_hook_uses_hook_tool_name_without_metadata() {
     )
     .await;
 
-    assert_eq!(decision, Some(ReviewDecision::Approved));
+    assert_eq!(
+        decision,
+        Some(McpToolApproval {
+            decision: ReviewDecision::Approved,
+            source: Some(ApprovalResolutionSource::Hook),
+        })
+    );
     let log = std::fs::read_to_string(log_path).expect("read MCP permission hook log");
     let inputs = log
         .lines()
@@ -3102,7 +3119,13 @@ async fn permission_request_hook_runs_after_remembered_mcp_approval() {
     )
     .await;
 
-    assert_eq!(decision, Some(ReviewDecision::Approved));
+    assert_eq!(
+        decision,
+        Some(McpToolApproval {
+            decision: ReviewDecision::Approved,
+            source: None,
+        })
+    );
     assert!(
         !log_path.exists(),
         "remembered approval should skip PermissionRequest hooks"
@@ -3202,7 +3225,11 @@ async fn strict_auto_review_forces_guardian_for_mcp_policy_skip() {
     )
     .await;
 
-    let Some(ReviewDecision::Denied { rejection: message }) = decision else {
+    let Some(McpToolApproval {
+        decision: ReviewDecision::Denied { rejection: message },
+        source: Some(ApprovalResolutionSource::Guardian),
+    }) = decision
+    else {
         panic!("guardian-denied MCP approval should carry a rejection message");
     };
     assert!(message.contains("Reason: The tool call would expose private calendar data"));
@@ -3313,7 +3340,10 @@ async fn assert_mcp_user_approval_persistence(
             .await
             .expect("MCP approval task timed out")
             .expect("MCP approval task failed"),
-        Some(expected_decision),
+        Some(McpToolApproval {
+            decision: expected_decision,
+            source: Some(ApprovalResolutionSource::User),
+        }),
     );
 }
 

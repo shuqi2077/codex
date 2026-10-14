@@ -70,6 +70,14 @@ fn config_panel_renders_each_group_at_a_stable_height() {
     for section in ConfigSection::ALL {
         assert_eq!(panel.picker.active_tab_id(), Some(section.title()));
         assert_eq!(panel.desired_height(/*width*/ 140), height);
+        let narrow_height = panel.desired_height(/*width*/ 50);
+        panel
+            .picker
+            .handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(panel.desired_height(/*width*/ 50), narrow_height);
+        panel
+            .picker
+            .handle_key_event(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
         insta::assert_snapshot!(
             format!("config_{}", section.title()),
             render(&panel, /*width*/ 140)
@@ -78,6 +86,36 @@ fn config_panel_renders_each_group_at_a_stable_height() {
             .picker
             .handle_key_event(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     }
+}
+
+#[test]
+fn effects_picker_groups_animation_settings() {
+    let (tx, mut rx) = unbounded_channel();
+    let keymap = RuntimeKeymap::defaults().list;
+    let mut view = ListSelectionView::new(
+        effects(&Tui::default(), &keymap),
+        AppEventSender::new(tx),
+        keymap,
+    );
+
+    insta::assert_snapshot!("effects_picker", render(&view, /*width*/ 80));
+    view.handle_key_event(KeyCode::Enter.into());
+    assert!(!view.is_complete());
+    assert!(matches!(
+        rx.try_recv().expect("save animation event"),
+        AppEvent::SaveConfigPreference(ConfigPreference::Toggle {
+            setting: ConfigToggle::Animations,
+            enabled: true,
+        })
+    ));
+    view.handle_key_event(KeyCode::Enter.into());
+    assert!(matches!(
+        rx.try_recv().expect("save animation event"),
+        AppEvent::SaveConfigPreference(ConfigPreference::Toggle {
+            setting: ConfigToggle::Animations,
+            enabled: false,
+        })
+    ));
 }
 
 #[test]
@@ -97,7 +135,7 @@ fn deselect_after_copy_requires_effective_copy_on_select() {
     });
     insta::assert_snapshot!(
         "deselect_after_copy_unavailable",
-        render(&panel, /*width*/ 140)
+        render(&panel, /*width*/ 50)
     );
     panel.handle_key_event(KeyCode::Enter.into());
     assert!(rx.try_recv().is_err());
@@ -156,19 +194,31 @@ fn notification_controls_render_dependency_states_and_condition_picker() {
         /*custom_notification_filters*/ false,
     );
     panel.handle_key_event(KeyCode::Right.into());
+    panel.handle_key_event(KeyCode::Down.into());
     insta::assert_snapshot!("config_notifications_off", render(&panel, /*width*/ 100));
 }
 
 #[test]
-fn filtered_selection_opens_the_matching_existing_editor() {
+fn search_finds_settings_across_groups_and_preserves_the_selected_group() {
     let (mut panel, mut rx) = panel();
     panel.handle_key_event(KeyEvent::from(KeyCode::Char('/')));
-    assert!(panel.handle_paste("terminal title".to_string()));
+    assert!(panel.handle_paste("notify when".to_string()));
+    insta::assert_snapshot!("config_global_search", render(&panel, /*width*/ 100));
+
+    panel.handle_key_event(KeyEvent::from(KeyCode::Right));
+    assert_eq!(panel.picker.active_tab_id(), Some("Notifications"));
+    assert_eq!(panel.picker.search_query(), Some("notify when"));
+    panel.handle_key_event(KeyEvent::from(KeyCode::Esc));
+    assert_eq!(panel.picker.active_tab_id(), Some("Notifications"));
+    assert_eq!(panel.picker.search_query(), None);
+
+    panel.handle_key_event(KeyEvent::from(KeyCode::Char('/')));
+    assert!(panel.handle_paste("composer stars".to_string()));
     panel.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
 
     assert!(matches!(
         rx.try_recv().expect("open editor event"),
-        AppEvent::OpenConfigEditor(handoff) if handoff.editor == ConfigEditor::TerminalTitle
+        AppEvent::OpenConfigEditor(handoff) if handoff.editor == ConfigEditor::Effects
     ));
     assert!(rx.try_recv().is_err());
     assert!(!panel.is_complete());
@@ -210,6 +260,7 @@ fn on_demand_search_preserves_printable_list_bindings() {
     let mut buffer = Buffer::empty(area);
     panel.render(area, &mut buffer);
     assert!(panel.cursor_pos(area).is_some());
+    assert!(render(&panel, /*width*/ 84).contains("enter open · esc clear search"));
     panel.handle_key_event(KeyEvent::from(KeyCode::Enter));
     assert!(matches!(
         rx.try_recv().expect("open theme editor event"),
@@ -320,9 +371,7 @@ fn unavailable_right_click_paste_remains_editable() {
         AppEventSender::new(tx),
         RuntimeKeymap::defaults().list,
         ConfigPanelStatus {
-            right_click_paste: Err(
-                "Unavailable in inline mode. Use your terminal's paste command.",
-            ),
+            right_click_paste: Err("Unavailable in inline mode; use your terminal's paste command"),
             ..STATUS
         },
     );
@@ -392,12 +441,12 @@ fn resume_directory_disables_current_without_remote_cwd_override() {
 fn refresh_preserves_search_and_updates_visible_state() {
     let (mut panel, mut rx) = panel();
     panel.handle_key_event(KeyEvent::from(KeyCode::Char('/')));
-    assert!(panel.handle_paste("animations".to_string()));
+    assert!(panel.handle_paste("tips".to_string()));
     panel.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(
         rx.try_recv().expect("save toggle event"),
         AppEvent::SaveConfigPreference(ConfigPreference::Toggle {
-            setting: ConfigToggle::Animations,
+            setting: ConfigToggle::Tips,
             enabled: true,
         })
     ));
@@ -407,21 +456,21 @@ fn refresh_preserves_search_and_updates_visible_state() {
     keymap.move_right.clear();
     panel.update_config_panel(&ConfigPanelUpdate {
         tui: Tui {
-            animations: true,
+            show_tooltips: true,
             ..Default::default()
         },
         keymap,
         status: STATUS,
-        notice: Some("Saved · restart Codex to apply".to_string()),
+        notice: Some("Test sent · check terminal/system settings".to_string()),
     });
 
-    assert_eq!(panel.picker.search_query(), Some("animations"));
+    assert_eq!(panel.picker.search_query(), Some("tips"));
     assert!(!panel.saving);
     panel.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(matches!(
         rx.try_recv().expect("immediate second press saves again"),
         AppEvent::SaveConfigPreference(ConfigPreference::Toggle {
-            setting: ConfigToggle::Animations,
+            setting: ConfigToggle::Tips,
             enabled: false,
         })
     ));

@@ -17,6 +17,7 @@ use crate::config_update::format_config_error;
 use crate::external_agent_config_migration::flow::ExternalAgentConfigMigrationFlowOutcome;
 use crate::pager_overlay::TranscriptHistoryState;
 use crate::session_resume::cwds_differ;
+use crate::status::StatusAccountDisplay;
 use codex_app_server_client::AppServerEvent;
 use codex_app_server_protocol::ThreadGoalStatus;
 #[cfg(target_os = "windows")]
@@ -165,7 +166,9 @@ impl App {
                     && self.daemon_restart.is_none()
                 {
                     self.daemon_restart = Some(tokio::spawn(codex_app_server_daemon::run(
-                        codex_app_server_daemon::LifecycleCommand::Restart,
+                        codex_app_server_daemon::LifecycleCommand::Restart {
+                            feature_overrides: Default::default(),
+                        },
                     )));
                 }
             }
@@ -2228,7 +2231,23 @@ impl App {
                     app_server.fetch_models(request_id, self.app_event_tx.clone());
                 }
             }
-            AppEvent::ModelsLoaded { request_id, result } => {
+            AppEvent::ModelsLoaded { request_id, result: Ok(models) }
+                if self.chat_widget.model_popup_request_is_current(request_id)
+                    && self.chat_widget.status_account_display() == Some(&StatusAccountDisplay::ApiKey) =>
+            {
+                let checked = app_server.constrain_api_key_models(
+                    self.chat_widget.config_ref(),
+                    self.chat_widget.thread_id(),
+                    /*requirements*/ None,
+                    models,
+                );
+                let tx = self.app_event_tx.clone();
+                tokio::spawn(async move {
+                    tx.send(AppEvent::ApiKeyCompatModelsLoaded { request_id, result: Ok(checked.await) });
+                });
+            }
+            AppEvent::ModelsLoaded { request_id, result }
+            | AppEvent::ApiKeyCompatModelsLoaded { request_id, result } => {
                 if self.chat_widget.on_models_loaded(request_id, result) {
                     self.model_catalog = self.chat_widget.model_catalog();
                     app_server.set_available_models(self.model_catalog.try_list_models()?);
@@ -3246,7 +3265,7 @@ impl App {
                         self.local_settings.tui.status_line = Some(ids.clone());
                         self.local_settings.tui.status_line_use_colors = use_theme_colors;
                         self.chat_widget.setup_status_line(items, use_theme_colors);
-                        self.chat_widget.refresh_config_panel(Some("Saved".into()));
+                        self.chat_widget.refresh_config_panel(/*notice*/ None);
                     }
                     Err(err) => {
                         let error = format_config_error(&err);
@@ -3288,7 +3307,7 @@ impl App {
                     Ok(()) => {
                         self.local_settings.tui.terminal_title = Some(ids.clone());
                         self.chat_widget.setup_terminal_title(items);
-                        self.chat_widget.refresh_config_panel(Some("Saved".into()));
+                        self.chat_widget.refresh_config_panel(/*notice*/ None);
                     }
                     Err(err) => {
                         tracing::error!(error = %err, "failed to persist terminal title items; keeping previous selection");
@@ -3357,7 +3376,7 @@ impl App {
                             crate::render::highlight::set_syntax_theme(theme);
                         }
                         self.sync_tui_theme_selection(name);
-                        self.chat_widget.refresh_config_panel(Some("Saved".into()));
+                        self.chat_widget.refresh_config_panel(/*notice*/ None);
                         self.refresh_status_line();
                         tui.frame_requester().schedule_frame();
                     }
@@ -3406,7 +3425,7 @@ impl App {
                 key,
                 intent,
             } => {
-                self.apply_keymap_capture(context, action, key, intent)
+                self.apply_keymap_capture(app_server, context, action, key, intent)
                     .await;
                 self.merge_startup_warnings(tui, &history_cell::StartupWarningsCell::default());
             }
@@ -3491,6 +3510,7 @@ impl App {
 
     async fn apply_keymap_capture(
         &mut self,
+        app_server: &mut AppServerSession,
         context: String,
         action: String,
         key: String,
@@ -3540,13 +3560,41 @@ impl App {
             }
         };
 
-        let edit =
-            crate::legacy_core::config::edit::keymap_bindings_edit(&context, &action, &bindings);
-        match ConfigEditsBuilder::for_config_path(self.local_settings.user_config_path.as_path())
-            .with_edits([edit])
-            .apply()
-            .await
-        {
+        let save = if matches!(self.app_server_target, AppServerTarget::LocalDaemon { .. }) {
+            // Let the daemon validate shared config before writing: older daemons may
+            // not understand bindings introduced by this TUI, including new defaults.
+            app_server
+                .request_handle()
+                .request_typed::<codex_app_server_protocol::ConfigWriteResponse>(
+                    codex_app_server_protocol::ClientRequest::ConfigValueWrite {
+                        request_id: app_server.next_request_id(),
+                        params: codex_app_server_protocol::ConfigValueWriteParams {
+                            key_path: format!("tui.keymap.{context}.{action}"),
+                            value: match bindings.as_slice() {
+                                [binding] => serde_json::json!(binding),
+                                bindings => serde_json::json!(bindings),
+                            },
+                            merge_strategy: codex_app_server_protocol::MergeStrategy::Replace,
+                            file_path: Some(
+                                self.local_settings.user_config_path.display().to_string(),
+                            ),
+                            expected_version: None,
+                        },
+                    },
+                )
+                .await
+                .map(|_| ())
+                .map_err(anyhow::Error::new)
+        } else {
+            let edit = crate::legacy_core::config::edit::keymap_bindings_edit(
+                &context, &action, &bindings,
+            );
+            ConfigEditsBuilder::for_config_path(self.local_settings.user_config_path.as_path())
+                .with_edits([edit])
+                .apply()
+                .await
+        };
+        match save {
             Ok(()) => {
                 self.cancel_pending_key_chord();
                 self.local_settings.tui.keymap = keymap_config.clone();

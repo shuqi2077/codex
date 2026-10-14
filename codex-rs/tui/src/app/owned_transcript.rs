@@ -39,6 +39,43 @@ impl App {
         false
     }
 
+    /// Publish a completed composer selection with the transcript/footer copy policy.
+    fn handle_composer_selection_release(
+        &mut self,
+        tui: &mut tui::Tui,
+        event: crossterm::event::MouseEvent,
+    ) -> bool {
+        let selection_copy = crate::tui::SelectionCopy::on_select(
+            self.local_settings
+                .copy_on_select(&codex_terminal_detection::terminal_info()),
+            self.right_click_paste_environment.primary,
+            // Editable selections remain visible so the next input can replace them.
+            /*clear_selection*/
+            false,
+        );
+        if !selection_copy.copies_clipboard() && !selection_copy.publishes_primary() {
+            return false;
+        }
+        let Some((char_count, result)) = self.chat_widget.copy_composer_selection_on_release(
+            event,
+            selection_copy,
+            |text, selection_copy| {
+                tui.copy_selection(
+                    text,
+                    crate::clipboard_copy::CopyFormat::PlainText,
+                    selection_copy,
+                    text,
+                )
+            },
+        ) else {
+            return false;
+        };
+        if let Some(result) = result {
+            self.transcript_view.show_copy_feedback(&result, char_count);
+        }
+        true
+    }
+
     fn sync_owned_transcript(&mut self, width: u16) -> bool {
         let chat_widget = &self.chat_widget;
         let transcript_width = chat_widget.history_wrap_width(width);
@@ -434,6 +471,7 @@ impl App {
                 return Ok(true);
             }
             if composer_ready && self.chat_widget.handle_composer_mouse(*mouse) {
+                self.handle_composer_selection_release(tui, *mouse);
                 if !matches!(
                     mouse.kind,
                     crossterm::event::MouseEventKind::ScrollUp

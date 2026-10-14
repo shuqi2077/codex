@@ -41,6 +41,8 @@ impl App {
                 return Ok(AppRunControl::Continue);
             }
         };
+        picker_app_server = picker_app_server
+            .with_remote_cwd_override(app_server.remote_cwd_override().map(Path::to_path_buf));
         picker_app_server.model_provider_override = self.harness_overrides.model_provider.clone();
         let selection =
             crate::resume_picker::run_resume_picker_from_existing_session_with_app_server(

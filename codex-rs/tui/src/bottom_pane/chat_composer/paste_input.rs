@@ -68,8 +68,15 @@ impl ChatComposer {
 
     /// Classify an explicit paste before integrating text shared with the buffered key path.
     pub fn handle_paste(&mut self, pasted: String) -> bool {
+        self.flush_pending_paste_burst();
         self.note_sparkle_paste(&pasted);
         self.apply_paste(pasted)
+    }
+
+    pub(crate) fn flush_pending_paste_burst(&mut self) {
+        if let Some(pasted) = self.draft.paste_burst.flush_before_modified_input() {
+            self.apply_paste(pasted);
+        }
     }
 
     /// Enable or disable paste-burst handling.
@@ -94,9 +101,7 @@ impl ChatComposer {
         let was_disabled = self.draft.disable_paste_burst;
         self.draft.disable_paste_burst = disabled;
         if disabled && !was_disabled {
-            if let Some(pasted) = self.draft.paste_burst.flush_before_modified_input() {
-                self.apply_paste(pasted);
-            }
+            self.flush_pending_paste_burst();
             self.draft.paste_burst.clear_after_explicit_paste();
         }
     }

@@ -114,6 +114,16 @@ impl ChatWidget {
         self.request_redraw();
     }
 
+    pub(super) fn on_replayed_task_started(&mut self, started_at: Option<i64>) {
+        self.on_task_started();
+        if let Some(started_at) = started_at {
+            let elapsed_secs = chrono::Utc::now().timestamp().saturating_sub(started_at);
+            self.bottom_pane.reset_status_timer(Duration::from_secs(
+                elapsed_secs.try_into().unwrap_or_default(),
+            ));
+        }
+    }
+
     pub(super) fn on_task_complete(
         &mut self,
         last_agent_message: Option<String>,

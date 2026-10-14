@@ -125,6 +125,7 @@ fn daemon_launch_telemetry_records_once_on_connection_or_early_return() {
         let observations = std::cell::RefCell::new(Vec::new());
         let launch = daemon_telemetry::Launch(Some(|target: &AppServerTarget, actual: bool| {
             observations.borrow_mut().push((target.clone(), actual));
+            Vec::new()
         }));
         if connected {
             launch.record(&AppServerTarget::Embedded, connected);

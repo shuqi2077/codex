@@ -1308,7 +1308,46 @@ async fn cli_main(
                         println!("{}", serde_json::to_string(&output)?);
                     }
                     AppServerDaemonSubcommand::Restart => {
-                        print_app_server_daemon_output(AppServerLifecycleCommand::Restart).await?;
+                        let overrides = root_config_overrides
+                            .parse_overrides()
+                            .map_err(anyhow::Error::msg)?;
+                        let layer = codex_config::build_cli_overrides_layer(&overrides);
+                        let features = layer
+                            .get("features")
+                            .and_then(toml::Value::as_table)
+                            .into_iter()
+                            .flatten()
+                            .map(|(name, value)| (name.as_str(), value))
+                            .collect::<std::collections::BTreeMap<_, _>>();
+                        let mut feature_overrides = std::collections::BTreeMap::new();
+                        // Match Features::apply_map's alias precedence.
+                        for (&name, &value) in &features {
+                            if name == "imagegenext" && features.contains_key("image_generation") {
+                                continue;
+                            }
+                            let value = if let Some(table) = value.as_table() {
+                                let Some(enabled) = table.get("enabled") else {
+                                    continue;
+                                };
+                                enabled
+                            } else {
+                                value
+                            };
+                            let feature =
+                                codex_features::feature_for_key(name).ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "daemon restart requires a boolean feature toggle: {name}"
+                                    )
+                                })?;
+                            let enabled = value.as_bool().ok_or_else(|| {
+                                anyhow::anyhow!("daemon restart requires a boolean enablement for features.{name}")
+                            })?;
+                            feature_overrides.insert(feature.key().to_string(), enabled);
+                        }
+                        print_app_server_daemon_output(AppServerLifecycleCommand::Restart {
+                            feature_overrides,
+                        })
+                        .await?;
                     }
                     AppServerDaemonSubcommand::Update {
                         from_cli: true,

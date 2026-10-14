@@ -74,6 +74,8 @@ use crate::async_scorer::authorization::ScoreAuthorization;
 
 #[path = "conversation_tests.rs"]
 mod conversation;
+#[path = "pending_score_tests.rs"]
+mod pending_score;
 use crate::async_scorer::config::CLASSIFICATION_OUTPUT_INSTRUCTIONS;
 use crate::async_scorer::config::DEFAULT_PARENT_COMPACTION_TOKENS;
 use crate::async_scorer::config::GuardianV2Config;
@@ -1385,6 +1387,9 @@ classifier_instructions = "Predict future violations.\n# Security Policy\n{{ ten
             "role": "developer",
             "internal_chat_message_metadata_passthrough": {
                 "content_item_kinds": ["guardian.classifier_instructions"],
+                "content_item_metadata": [{
+                    "provenance": {"type": "harness", "hook": false},
+                }],
             },
             "content": [{
                 "type": "input_text",
@@ -1427,6 +1432,9 @@ max_classifier_instruction_tokens = 256
             "role": "developer",
             "internal_chat_message_metadata_passthrough": {
                 "content_item_kinds": ["guardian.classifier_instructions"],
+                "content_item_metadata": [{
+                    "provenance": {"type": "harness", "hook": false},
+                }],
             },
             "content": [{
                 "type": "input_text",
@@ -1513,6 +1521,9 @@ max_recent_non_user_entries = 8
             "role": "developer",
             "internal_chat_message_metadata_passthrough": {
                 "content_item_kinds": ["guardian.classifier_instructions"],
+                "content_item_metadata": [{
+                    "provenance": {"type": "harness", "hook": false},
+                }],
             },
             "content": [{
                 "type": "input_text",
@@ -1951,6 +1962,9 @@ async fn contributor_uses_model_defaults_and_preserves_local_overrides() -> Resu
             "role": "developer",
             "internal_chat_message_metadata_passthrough": {
                 "content_item_kinds": ["guardian.classifier_instructions"],
+                "content_item_metadata": [{
+                    "provenance": {"type": "harness", "hook": false},
+                }],
             },
             "content": [{
                 "type": "input_text",
@@ -2090,7 +2104,7 @@ async fn contributor_samples_tool_calls_with_the_existing_luna_pool() -> Result<
         conversation_history,
         r#"{"path":"README.md"}"#,
         Some(TEST_GUARDIAN_POLICY),
-        "[features.guardianv2.transcript]\nmax_message_entry_tokens = 100\nmax_message_transcript_tokens = 100\n",
+        "[features.guardianv2]\nasync_classifier_mode = \"snapshot\"\n[features.guardianv2.transcript]\nmax_message_entry_tokens = 100\nmax_message_transcript_tokens = 100\n",
         /*model_defaults*/ None,
     )
     .await?;
@@ -2140,6 +2154,9 @@ async fn contributor_samples_tool_calls_with_the_existing_luna_pool() -> Result<
             "role": "developer",
             "internal_chat_message_metadata_passthrough": {
                 "content_item_kinds": ["guardian.classifier_instructions"],
+                "content_item_metadata": [{
+                    "provenance": {"type": "harness", "hook": false},
+                }],
             },
             "content": [{
                 "type": "input_text",
@@ -2477,7 +2494,7 @@ async fn contributor_skips_required_models_in_standard_scope() -> Result<()> {
     let oversized_compaction = ResponseItem::Compaction {
         id: Some(ResponseItemId::from_server("cmp_oversized".to_owned())),
         encrypted_content: "a"
-            .repeat(TruncationPolicy::Tokens(DEFAULT_PARENT_COMPACTION_TOKENS).byte_budget()),
+            .repeat(3 * TruncationPolicy::Tokens(DEFAULT_PARENT_COMPACTION_TOKENS).byte_budget()),
         internal_chat_message_metadata_passthrough: None,
     };
     registry.tool_lifecycle_contributors()[0]
@@ -2837,6 +2854,9 @@ async fn contributor_uses_catalog_policy_without_a_configured_override() -> Resu
             "role": "developer",
             "internal_chat_message_metadata_passthrough": {
                 "content_item_kinds": ["guardian.classifier_instructions"],
+                "content_item_metadata": [{
+                    "provenance": {"type": "harness", "hook": false},
+                }],
             },
             "content": [{
                 "type": "input_text",
@@ -2883,6 +2903,9 @@ async fn contributor_preserves_uncapped_classifier_instructions() -> Result<()> 
             "role": "developer",
             "internal_chat_message_metadata_passthrough": {
                 "content_item_kinds": ["guardian.classifier_instructions"],
+                "content_item_metadata": [{
+                    "provenance": {"type": "harness", "hook": false},
+                }],
             },
             "content": [{
                 "type": "input_text",
@@ -3386,70 +3409,94 @@ async fn assert_parent_compaction_reuse(parent_context_for_review: bool) -> Resu
 
     let oversized_compaction = ResponseItem::Compaction {
         id: Some(ResponseItemId::from_server("cmp_oversized".to_owned())),
-        encrypted_content: "a".repeat(TruncationPolicy::Tokens(/*limit*/ 256).byte_budget()),
+        encrypted_content: "a".repeat(3 * TruncationPolicy::Tokens(/*limit*/ 256).byte_budget()),
         internal_chat_message_metadata_passthrough: None,
     };
-    registry.tool_lifecycle_contributors()[0]
-        .on_tool_start(ToolStartInput {
-            permissions: Box::pin(async { Some(Default::default()) }),
-            session_store: &session_store,
-            thread_store,
-            turn_store: &turn_store,
-            turn_id: "turn-1",
-            root_turn_id: None,
-            call_id: "call-2",
-            originating_item_id: None,
-            tool_name: &tool_name,
-            mcp_tool: None,
-            payload: &tool_payload,
-            conversation_history: Arc::new(TestRetainedHistory {
-                current: TestConversationHistory(vec![latest_compaction, oversized_compaction]),
-                retained: Vec::new(),
-                retained_context: parent_context_for_review
-                    .then(codex_history::RetainedContext::default),
-                compaction_model_hash: thread_store
-                    .get::<ModelInfo>()
-                    .and_then(|model| model.comp_hash.clone()),
-                review_context_revision,
-            }),
-            source: ToolCallSource::Direct,
-        })
-        .await;
+    let mut rejected_compactions = vec![(oversized_compaction, "parent_compaction_oversized")];
+    // Legacy context can omit unusable checkpoints and still review its raw history.
+    if parent_context_for_review {
+        rejected_compactions.push((
+            ResponseItem::ContextCompaction {
+                id: Some(ResponseItemId::from_server("cmp_unusable".to_owned())),
+                encrypted_content: None,
+                internal_chat_message_metadata_passthrough: None,
+            },
+            "parent_compaction_unusable",
+        ));
+    }
+    for (index, (rejected_compaction, failure_reason)) in
+        rejected_compactions.into_iter().enumerate()
+    {
+        let call_id = format!("call-{}", index + 2);
+        registry.tool_lifecycle_contributors()[0]
+            .on_tool_start(ToolStartInput {
+                permissions: Box::pin(async { Some(Default::default()) }),
+                session_store: &session_store,
+                thread_store,
+                turn_store: &turn_store,
+                turn_id: "turn-1",
+                root_turn_id: None,
+                call_id: &call_id,
+                originating_item_id: None,
+                tool_name: &tool_name,
+                mcp_tool: None,
+                payload: &tool_payload,
+                conversation_history: Arc::new(TestRetainedHistory {
+                    current: TestConversationHistory(vec![
+                        latest_compaction.clone(),
+                        rejected_compaction,
+                    ]),
+                    retained: Vec::new(),
+                    retained_context: parent_context_for_review
+                        .then(codex_history::RetainedContext::default),
+                    compaction_model_hash: thread_store
+                        .get::<ModelInfo>()
+                        .and_then(|model| model.comp_hash.clone()),
+                    review_context_revision,
+                }),
+                source: ToolCallSource::Direct,
+            })
+            .await;
 
-    let fail_closed_score = cached_score(thread_store)
-        .expect("an oversized compaction should immediately receive the maximum risk score");
-    assert_eq!(
-        &fail_closed_score,
-        &SecurityRiskScore {
-            scores: BTreeMap::from([("action_risk".to_owned(), 1.0)]),
-            call_id: None,
-            action: None,
-            sampled_at: fail_closed_score.sampled_at,
-        }
-    );
-    assert_eq!(
-        cached_approval(
-            &registry,
-            thread_store,
-            "review action",
-            /*metrics*/ None,
-        )
-        .await,
-        None
-    );
-    assert_eq!(
-        server.connections().iter().map(Vec::len).sum::<usize>(),
-        1,
-        "an oversized latest compaction must bypass Luna rather than reuse stale context"
-    );
-    assert!(metrics.0.lock().unwrap().iter().any(|sample| {
-        matches!(
-            sample,
-            RecordedMetric::Counter(name, 1, tags)
-                if name == CLASSIFICATION_METRIC
-                    && tags.contains(&("outcome".to_owned(), "failure".to_owned()))
-        )
-    }));
+        let fail_closed_score = cached_score(thread_store)
+            .expect("a rejected compaction should immediately receive the maximum risk score");
+        assert_eq!(
+            &fail_closed_score,
+            &SecurityRiskScore {
+                scores: BTreeMap::from([("action_risk".to_owned(), 1.0)]),
+                call_id: None,
+                action: None,
+                sampled_at: fail_closed_score.sampled_at,
+            }
+        );
+        assert_eq!(
+            cached_approval(
+                &registry,
+                thread_store,
+                "review action",
+                /*metrics*/ None,
+            )
+            .await,
+            None
+        );
+        assert_eq!(
+            server.connections().iter().map(Vec::len).sum::<usize>(),
+            1,
+            "a rejected latest compaction must bypass Luna rather than reuse stale context"
+        );
+        assert!(metrics.0.lock().unwrap().iter().any(|sample| {
+            matches!(
+                sample,
+                RecordedMetric::Counter(name, 1, tags)
+                    if name == CLASSIFICATION_METRIC
+                        && tags.contains(&("outcome".to_owned(), "failure".to_owned()))
+                        && tags.contains(&(
+                            "failure_reason".to_owned(),
+                            failure_reason.to_owned(),
+                        ))
+            )
+        }));
+    }
 
     Ok(())
 }
@@ -3519,6 +3566,11 @@ async fn cached_approval_respects_action_order_and_wrapper_lag() -> Result<()> {
     };
     let origin = ResponseItemId::from_server("wrapper".to_owned());
     let wrapper = start("wrapper", &origin, ToolCallSource::Direct);
+    let pending = crate::async_scorer::score::PendingScore {
+        progress: Arc::clone(&progress),
+        index: wrapper - 1,
+        max_lag: 2,
+    };
     for (call_id, expected) in [
         ("first", Some(ReviewDecision::Approved)),
         ("second", Some(ReviewDecision::Approved)),
@@ -3526,6 +3578,27 @@ async fn cached_approval_respects_action_order_and_wrapper_lag() -> Result<()> {
     ] {
         start(call_id, &origin, nested.clone());
         assert_eq!(approve(call_id).await, expected);
+        let expiration = pending.expired();
+        tokio::pin!(expiration);
+        if expected.is_some() {
+            tokio::select! {
+                biased;
+                () = &mut expiration => panic!("a usable wrapper-discounted score expired"),
+                () = std::future::ready(()) => {},
+            }
+        } else {
+            tokio::time::timeout(ASYNC_TEST_TIMEOUT, &mut expiration).await?;
+        }
+        if call_id == "second" {
+            progress.finish("first");
+            tokio::select! {
+                biased;
+                () = &mut expiration => panic!("the second nested action can still reuse the score"),
+                () = std::future::ready(()) => {},
+            }
+            progress.finish("second");
+            tokio::time::timeout(ASYNC_TEST_TIMEOUT, &mut expiration).await?;
+        }
     }
     // A score covering the wrapper must not receive another discount.
     seed_cached_score(

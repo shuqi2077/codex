@@ -119,6 +119,7 @@ async fn cloud_preference_preserves_aliases_reads_and_executor_fallback() -> Tes
                     environments: &[],
                     ready_selected_capability_roots: if ready { &roots } else { &[] },
                     executor_capability_discovery: None,
+                    executor_capability_discovery_v2: None,
                     extension_metrics: None,
                     session_store: &session_store,
                     thread_store: &thread_store,

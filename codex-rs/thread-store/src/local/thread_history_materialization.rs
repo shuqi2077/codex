@@ -91,7 +91,8 @@ async fn read_projection_steps(
 ) -> ThreadStoreResult<(Vec<RolloutProjectionStep>, u64)> {
     let path = rollout_path.to_path_buf();
     let span = tracing::Span::current();
-    tokio::task::spawn_blocking(move || {
+    let (stop, keep_running) = tokio::sync::oneshot::channel::<()>();
+    let result = tokio::task::spawn_blocking(move || {
         let _entered = span.enter();
         read_projection_steps_sync(
             &path,
@@ -99,12 +100,15 @@ async fn read_projection_steps(
             expected_ordinal,
             thread_id,
             subagent_history_start_ordinal,
+            || stop.is_closed(),
         )
     })
     .await
     .map_err(|err| ThreadStoreError::Internal {
         message: format!("failed to join rollout projection read: {err}"),
-    })?
+    })?;
+    drop(keep_running);
+    result
 }
 
 /// Read and project the complete durable prefix in one blocking task.
@@ -114,15 +118,16 @@ fn read_projection_steps_sync(
     expected_ordinal: u64,
     thread_id: ThreadId,
     subagent_history_start_ordinal: Option<u64>,
+    is_cancelled: impl Fn() -> bool,
 ) -> ThreadStoreResult<(Vec<RolloutProjectionStep>, u64)> {
-    let mut file = match codex_rollout::open_rollout_seekable_reader(rollout_path) {
+    let mut file = match codex_rollout::open_rollout_seekable_reader(rollout_path, &is_cancelled) {
         Ok(file) => file,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound && start_offset == 0 => {
             return Ok((Vec::new(), 0));
         }
         Err(err) => return Err(thread_store_io_error(err)),
     };
-    let file_end_offset = file.metadata().map_err(thread_store_io_error)?.len();
+    let file_end_offset = file.seek(SeekFrom::End(0)).map_err(thread_store_io_error)?;
     let byte_count =
         file_end_offset
             .checked_sub(start_offset)
@@ -139,15 +144,19 @@ fn read_projection_steps_sync(
         .map_err(thread_store_io_error)?;
     // Only project the newline-terminated prefix; leave a trailing partial record for the next
     // pass.
-    let complete_byte_count = bytes
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map_or(0, |index| index + 1);
     let mut projections = Vec::new();
     let mut next_ordinal = expected_ordinal;
     let mut next_offset = start_offset;
     let mut line_start_offset = start_offset;
-    for line_bytes in bytes[..complete_byte_count].split_inclusive(|byte| *byte == b'\n') {
+    for line_bytes in bytes.split_inclusive(|byte| *byte == b'\n') {
+        if is_cancelled() {
+            return Err(thread_store_io_error(std::io::Error::other(
+                "rollout read cancelled",
+            )));
+        }
+        if !line_bytes.ends_with(b"\n") {
+            break;
+        }
         let line_end_offset = line_start_offset
             .checked_add(u64::try_from(line_bytes.len()).map_err(|_| {
                 ThreadStoreError::Internal {

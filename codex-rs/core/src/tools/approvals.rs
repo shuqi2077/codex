@@ -388,10 +388,18 @@ impl ApprovalAction {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ApprovalResolutionSource {
+pub(crate) enum ApprovalResolutionSource {
     Hook,
     Guardian,
     User,
+}
+
+/// Preserves the approval path even when the decision becomes a tool error.
+/// The source identifies the reviewer, not the actor that caused cancellation.
+#[must_use]
+pub(crate) struct ApprovalResult {
+    pub(crate) result: Result<ReviewDecision, ToolError>,
+    pub(crate) source: Option<ApprovalResolutionSource>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -440,7 +448,7 @@ impl Session {
         self: &Arc<Self>,
         action: ApprovalAction,
         ctx: ApprovalContext,
-    ) -> Result<ReviewDecision, ToolError> {
+    ) -> ApprovalResult {
         // Stdin that exceeds current permissions needs a fresh sandbox approval.
         // Strict review of ordinary input follows the same routing as ordinary exec.
         let policy = ctx.review_context.turn().approval_policy();
@@ -450,7 +458,10 @@ impl Session {
             && let Some(reason) =
                 prompt_is_rejected_by_policy(policy, /*prompt_is_rule*/ false)
         {
-            return Err(ToolError::Rejected(reason.to_string()));
+            return ApprovalResult {
+                result: Err(ToolError::Rejected(reason.to_string())),
+                source: None,
+            };
         }
         let is_mcp_tool_call = matches!(&action, ApprovalAction::McpToolCall { .. });
         let is_network_approval = matches!(&action, ApprovalAction::NetworkAccess { .. });
@@ -485,8 +496,12 @@ impl Session {
         if !is_network_approval {
             record_resolution(&ctx, &resolution);
         }
+        let source = Some(resolution.source);
         if is_mcp_tool_call && resolution.decision == ReviewDecision::ApprovedMcpPolicyAmendment {
-            return Ok(resolution.decision);
+            return ApprovalResult {
+                result: Ok(resolution.decision),
+                source,
+            };
         }
         if is_network_approval {
             match (&resolution.decision, resolution.source) {
@@ -496,17 +511,26 @@ impl Session {
                     },
                     _,
                 ) if network_policy_amendment.action == NetworkPolicyRuleAction::Deny => {
-                    return Ok(resolution.decision);
+                    return ApprovalResult {
+                        result: Ok(resolution.decision),
+                        source,
+                    };
                 }
                 (ReviewDecision::Abort, ApprovalResolutionSource::Guardian) => {
-                    return Err(ToolError::Rejected(
-                        "automatic approval review was cancelled".to_string(),
-                    ));
+                    return ApprovalResult {
+                        result: Err(ToolError::Rejected(
+                            "automatic approval review was cancelled".to_string(),
+                        )),
+                        source,
+                    };
                 }
                 _ => {}
             }
         }
-        resolution.into_tool_result(ctx.review_context.turn().model_info())
+        ApprovalResult {
+            result: resolution.into_tool_result(ctx.review_context.turn().model_info()),
+            source,
+        }
     }
 
     async fn request_reviewer_approval(

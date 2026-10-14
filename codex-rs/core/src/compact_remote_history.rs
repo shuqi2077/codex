@@ -70,9 +70,10 @@ fn is_attached_notice(notice: &ResponseItem) -> bool {
 pub(crate) fn trim_function_call_history_to_fit_context_window(
     history: &mut ContextManager,
     turn_context: &TurnContext,
+    context_window: Option<i64>,
     base_instructions: &BaseInstructions,
 ) -> (usize, i64) {
-    let Some(context_window) = turn_context.model_context_window() else {
+    let Some(context_window) = context_window else {
         return (0, 0);
     };
     // Keep the unclamped total so replacing an item cannot lose an overflow hidden by i64

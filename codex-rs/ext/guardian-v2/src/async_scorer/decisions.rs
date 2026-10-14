@@ -7,6 +7,7 @@
 use super::sampler::LunaSampler;
 use super::sampler::LunaSamplingRequest;
 use codex_context_fragments::RenderedFragment;
+use codex_guardian_context::TrustedSkills;
 use codex_guardian_context::TrustedTool;
 use codex_history::ResponseItemEnvelope;
 use codex_http_client::HttpClient;
@@ -44,6 +45,16 @@ pub(super) enum DecisionsError {
     ClientSetup,
     #[error("Decisions cannot represent the complete classifier evidence")]
     UnsupportedEvidence,
+    #[error("Decisions cannot represent this developer message")]
+    UnsupportedDeveloperMessage,
+    #[error("Decisions cannot represent this non-user message")]
+    UnsupportedNonUserMessage,
+    #[error("Decisions cannot represent trusted skill evidence")]
+    UnsupportedTrustedSkills,
+    #[error("Decisions cannot represent this image evidence")]
+    UnsupportedImage,
+    #[error("Decisions cannot represent audio evidence")]
+    UnsupportedAudio,
     #[error("Decisions input exceeds the request limit")]
     InputTooLarge,
     #[error("Decisions request timed out")]
@@ -247,7 +258,11 @@ fn request_body(
                 continue;
             }
             ("user", _, _) => {}
-            _ => return Err(DecisionsError::UnsupportedEvidence),
+            ("developer", _, Some([kind])) if kind.0 == TrustedSkills::KIND => {
+                return Err(DecisionsError::UnsupportedTrustedSkills);
+            }
+            ("developer", _, _) => return Err(DecisionsError::UnsupportedDeveloperMessage),
+            _ => return Err(DecisionsError::UnsupportedNonUserMessage),
         }
         let mut parts = Vec::new();
         for part in content {
@@ -268,9 +283,13 @@ fn request_body(
                         json!({"type": "input_image", "image_url": image_url, "detail": null}),
                     );
                 }
-                ContentItem::InputImage { .. }
-                | ContentItem::InputAudio { .. }
-                | ContentItem::OutputText { .. } => {
+                ContentItem::InputImage { .. } => {
+                    return Err(DecisionsError::UnsupportedImage);
+                }
+                ContentItem::InputAudio { .. } => {
+                    return Err(DecisionsError::UnsupportedAudio);
+                }
+                ContentItem::OutputText { .. } => {
                     return Err(DecisionsError::UnsupportedEvidence);
                 }
             }

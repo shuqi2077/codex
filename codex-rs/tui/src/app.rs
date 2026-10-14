@@ -536,6 +536,7 @@ pub(crate) struct App {
     config_notification_test_pending: Option<u64>,
     model_catalog: Arc<ModelCatalog>,
     pub(crate) session_telemetry: SessionTelemetry,
+    terminal_size_tags: crate::terminal_size_telemetry::LaunchTags,
     pub(crate) app_event_tx: AppEventSender,
     pub(crate) chat_widget: ChatWidget,
     workspace_command_runner: Option<WorkspaceCommandRunner>,

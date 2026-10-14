@@ -230,6 +230,7 @@ mod temporary_structured_request;
 mod terminal_hyperlinks;
 mod terminal_palette;
 mod terminal_probe;
+mod terminal_size_telemetry;
 mod terminal_title;
 mod terminal_visualization_instructions;
 mod text_formatting;
@@ -863,10 +864,14 @@ async fn lookup_latest_session_target_with_app_server(
             .data
             .into_iter()
             .find_map(session_target_from_app_server_thread);
-        if target.as_ref().is_some_and(|target| {
-            uses_remote_workspace || target.path.as_deref().is_some_and(std::path::Path::exists)
-        }) {
-            return Ok(target);
+        if let Some(target) = target
+            && (uses_remote_workspace
+                || match target.path.as_deref() {
+                    Some(path) => codex_rollout::existing_rollout_path(path).await.is_some(),
+                    None => false,
+                })
+        {
+            return Ok(Some(target));
         }
     }
     Ok(None)
@@ -1159,7 +1164,9 @@ async fn run_ratatui_app(
     managed_worktree: Option<ManagedTuiWorktree>,
     daemon_startup_warning: Option<String>,
     managed_daemon: bool,
-    launch_telemetry: daemon_telemetry::Launch<impl FnOnce(&AppServerTarget, bool)>,
+    launch_telemetry: daemon_telemetry::Launch<
+        impl FnOnce(&AppServerTarget, bool) -> terminal_size_telemetry::LaunchTags,
+    >,
     startup_draft: startup_draft::StartupDraft,
 ) -> color_eyre::Result<AppExitInfo> {
     let uses_remote_workspace = app_server_target.uses_remote_workspace();
@@ -1226,7 +1233,8 @@ async fn run_ratatui_app(
             ),
         )
         .await;
-    launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
+    tui.terminal_size_tags =
+        launch_telemetry.record(&app_server_target, matches!(&startup_app_server, Ok(Ok(_))));
     let mut app_server_session = match startup_app_server {
         Ok(Ok(app_server)) => {
             AppServerSession::new(app_server, app_server_target.thread_params_mode())
@@ -1824,9 +1832,30 @@ async fn run_ratatui_app(
         },
     };
 
-    // Remote startup keeps its existing explicit --cd trust check. Resolving other
-    // remote folders requires authoritative project-root information from the server.
-    if !uses_remote_workspace || remote_cwd_override.is_some() {
+    if let resume_picker::SessionSelection::Resume(target) = &session_selection {
+        let validation = startup_draft
+            .run_until(
+                &mut tui,
+                session_resume::validate_resume_target(&mut app_server, target.thread_id),
+            )
+            .await;
+        if let Err(err) = validation
+            .map_err(color_eyre::Report::from)
+            .and_then(|result| result)
+        {
+            shutdown_startup_session(Some(app_server), &mut terminal_restore_guard).await;
+            return Err(err);
+        }
+    }
+
+    // The shared overview does not open a workspace; session selection checks trust when needed.
+    // Embedded fallback cannot show the overview and still needs normal startup initialization.
+    if (!matches!(
+        session_selection,
+        resume_picker::SessionSelection::AgentsOverview
+    ) || matches!(app_server_target, AppServerTarget::Embedded))
+        && (!uses_remote_workspace || remote_cwd_override.is_some())
+    {
         let resumed_thread = if matches!(app_server_target, AppServerTarget::LocalDaemon { .. })
             && let resume_picker::SessionSelection::Resume(target) = &session_selection
         {
@@ -2732,6 +2761,52 @@ requires_openai_auth = {requires_openai_auth}
     }
 
     #[tokio::test]
+    async fn startup_resume_rejects_guardian_thread() -> color_eyre::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let config = build_config(&temp_dir).await?;
+        let thread_id = write_session_rollout(
+            temp_dir.path(),
+            "2025-01-05T12-00-00",
+            "2025-01-05T12:00:00Z",
+            "Guardian review",
+            &config.model_provider_id,
+            config.cwd.as_path(),
+        )?;
+        let rollout_path = temp_dir
+            .path()
+            .join("sessions/2025/01/05")
+            .join(format!("rollout-2025-01-05T12-00-00-{thread_id}.jsonl"));
+        let rollout = std::fs::read_to_string(&rollout_path)?;
+        let (meta, history) = rollout.split_once('\n').expect("rollout has metadata");
+        let mut meta: serde_json::Value = serde_json::from_str(meta)?;
+        meta["payload"]["source"] = serde_json::json!({"subagent": {"other": "guardian"}});
+        meta["payload"]["parent_thread_id"] =
+            serde_json::json!("00000000-0000-0000-0000-000000000001");
+        std::fs::write(&rollout_path, format!("{meta}\n{history}"))?;
+
+        let state_db =
+            init_state_db_for_app_server_target(&config, &AppServerTarget::Embedded).await?;
+        let mut app_server = start_app_server_for_picker(
+            &config,
+            &AppServerTarget::Embedded,
+            Vec::new(),
+            LoaderOverrides::without_managed_config_for_tests(),
+            state_db,
+            Arc::new(EnvironmentManager::default_for_tests()),
+        )
+        .await?;
+        let error = session_resume::validate_resume_target(&mut app_server, thread_id)
+            .await
+            .expect_err("Guardian resume should be rejected");
+        insta::assert_snapshot!(error.to_string(), @"
+        Cannot resume a Guardian review thread.
+        Resume its parent session instead: codex resume 00000000-0000-0000-0000-000000000001
+        ");
+        app_server.shutdown().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn startup_resume_and_fork_use_configured_or_explicit_cwd() -> color_eyre::Result<()> {
         for (action, configured_mode, has_explicit_cwd, expected_directory) in [
             (CwdPromptAction::Resume, "current", false, "launch"),
@@ -3445,6 +3520,9 @@ requires_openai_auth = {requires_openai_auth}
         config
             .features
             .set_enabled(codex_features::Feature::Worktrees, /*enabled*/ false)?;
+        config
+            .features
+            .enable(codex_features::Feature::LocalThreadStoreCompression)?;
         let model_provider = config.model_provider_id.as_str();
         let project_thread_id = write_session_rollout(
             temp_dir.path(),
@@ -3470,6 +3548,14 @@ requires_openai_auth = {requires_openai_auth}
             model_provider,
             &other_cwd,
         )?;
+        let rollout_paths = [
+            ("2025-01-02T10-00-00", project_thread_id),
+            ("2025-01-02T11-00-00", linked_thread_id),
+            ("2025-01-02T12-00-00", other_thread_id),
+        ]
+        .map(|(timestamp, thread_id)| {
+            app_test_support::rollout_path(temp_dir.path(), timestamp, &thread_id.to_string())
+        });
 
         let mut app_server = AppServerSession::new(
             codex_app_server_client::AppServerClient::InProcess(
@@ -3477,6 +3563,16 @@ requires_openai_auth = {requires_openai_auth}
             ),
             ThreadParamsMode::Embedded,
         );
+        // Exercise the logical .jsonl paths returned by thread/list after startup compression.
+        tokio::time::timeout(std::time::Duration::from_secs(/*secs*/ 30), async {
+            while rollout_paths
+                .iter()
+                .any(|path| path.exists() || !path.with_extension("jsonl.zst").exists())
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(/*millis*/ 10)).await;
+            }
+        })
+        .await?;
         let filter_cwd = latest_session_cwd_filter(
             /*uses_remote_workspace*/ false, /*remote_cwd_override*/ None, &config,
             /*show_all*/ false,

@@ -6,6 +6,8 @@ use codex_protocol::openai_models::CodeModeToolMessages;
 use codex_protocol::openai_models::IncrementalToolMessages;
 use codex_protocol::openai_models::ToolMessage;
 use codex_protocol::openai_models::ToolMode;
+use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::Op;
 use codex_protocol::protocol::ThreadSettingsOverrides;
 use core_test_support::context_snapshot;
 use core_test_support::context_snapshot::ContextSnapshotOptions;
@@ -13,7 +15,9 @@ use core_test_support::responses;
 use core_test_support::skip_if_no_network;
 use core_test_support::skip_if_wine_exec;
 use core_test_support::test_codex::test_codex;
+use core_test_support::wait_for_event;
 use core_test_support::wait_for_mcp_server;
+use pretty_assertions::assert_eq;
 use serde_json::json;
 use test_case::test_case;
 
@@ -30,8 +34,21 @@ async fn incremental_tools_append_changed_catalog_without_rewriting_history(
     let server = responses::start_mock_server().await;
     let mock = responses::mount_sse_sequence(
         &server,
-        (1..=4)
-            .map(|index| responses::sse(vec![responses::ev_completed(&format!("resp-{index}"))]))
+        (1..=if use_responses_lite { 6 } else { 4 })
+            .map(|index| {
+                let mut events = Vec::new();
+                if index == 5 {
+                    events.push(json!({
+                        "type": "response.output_item.done",
+                        "item": {
+                            "type": "compaction",
+                            "encrypted_content": "INCREMENTAL_TOOLS_CHECKPOINT",
+                        },
+                    }));
+                }
+                events.push(responses::ev_completed(&format!("resp-{index}")));
+                responses::sse(events)
+            })
             .collect(),
     )
     .await;
@@ -39,14 +56,24 @@ async fn incremental_tools_append_changed_catalog_without_rewriting_history(
         .with_model_info_override("gpt-5.4", move |model| {
             model.use_responses_lite = use_responses_lite;
             model.tool_mode = Some(ToolMode::CodeMode);
+            if use_responses_lite {
+                model
+                    .model_messages
+                    .as_mut()
+                    .expect("model messages")
+                    .instructions_template =
+                    Some("Use the available tools to help the user.".to_string());
+            }
         })
-        .with_config(|config| {
+        .with_config(move |config| {
             config
                 .features
                 .enable(Feature::IncrementalTools)
                 .expect("enable incremental tools");
-            config.base_instructions =
-                Some("Use the available tools to help the user.".to_string());
+            if !use_responses_lite {
+                config.base_instructions =
+                    Some("Use the available tools to help the user.".to_string());
+            }
             config.code_mode.disable_in_process_fallback = true;
             let catalog = config.model_catalog.as_mut().expect("model catalog");
             let mut updated = catalog
@@ -56,6 +83,13 @@ async fn incremental_tools_append_changed_catalog_without_rewriting_history(
                 .expect("source model")
                 .clone();
             updated.slug = "updated-tools-model".to_string();
+            if use_responses_lite {
+                updated
+                    .model_messages
+                    .as_mut()
+                    .expect("model messages")
+                    .instructions_template = Some("Review results before responding.".to_string());
+            }
             updated
                 .model_messages
                 .get_or_insert_default()
@@ -86,8 +120,29 @@ async fn incremental_tools_append_changed_catalog_without_rewriting_history(
         .await?;
     test.submit_text_turn("Continue with the same updated tools.")
         .await?;
+    if use_responses_lite {
+        test.codex.submit(Op::Compact).await?;
+        wait_for_event(&test.codex, |event| {
+            matches!(event, EventMsg::TurnComplete(_))
+        })
+        .await;
+        test.submit_text_turn("Continue after compaction.").await?;
+    }
 
     let requests = mock.requests();
+    if use_responses_lite {
+        for request in &requests[..5] {
+            assert_eq!(
+                request.instructions_text(),
+                "Use the available tools to help the user."
+            );
+        }
+        assert!(!requests[5].body_contains_text("Use the available tools to help the user."));
+        assert_eq!(
+            requests[5].instructions_text(),
+            "Review results before responding."
+        );
+    }
     insta::assert_snapshot!(
         if use_responses_lite {
             "incremental_tools"
@@ -96,7 +151,7 @@ async fn incremental_tools_append_changed_catalog_without_rewriting_history(
         },
         context_snapshot::format_request_history_snapshot(
             if use_responses_lite {
-                "Tool definitions enter history in one batch; a catalog change appends one developer notice before only the changed exec definition, without modifying namespace descriptions. The next unchanged turn appends only user input."
+                "Tool definitions precede the initial base instructions. A model switch appends one developer notice, changed tools, and replacement instructions without rewriting the prefix; compaction starts a new window with the updated base."
             } else {
                 "Regular Responses requests carry the full current tool catalog without an incremental notice; changed execution instructions replace the catalog on subsequent requests."
             },

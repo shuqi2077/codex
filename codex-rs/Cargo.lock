@@ -2220,6 +2220,7 @@ dependencies = [
  "blake3",
  "codex-app-server-protocol",
  "codex-app-server-transport",
+ "codex-features",
  "codex-http-client",
  "codex-install-context",
  "codex-uds",
@@ -3197,6 +3198,7 @@ dependencies = [
  "codex-utils-sandbox-summary",
  "codex-worktree",
  "core_test_support",
+ "insta",
  "libc",
  "opentelemetry",
  "opentelemetry_sdk",
@@ -3301,6 +3303,7 @@ dependencies = [
  "codex-network-proxy",
  "codex-protocol",
  "codex-shell-command",
+ "codex-skills",
  "codex-utils-path-uri",
  "pretty_assertions",
  "serde",
@@ -3402,6 +3405,7 @@ dependencies = [
  "codex-rollout",
  "codex-thread-store",
  "codex-utils-output-truncation",
+ "linkify",
  "pretty_assertions",
  "serde",
  "serde_json",
@@ -4636,7 +4640,6 @@ dependencies = [
  "schemars 0.8.22",
  "serde",
  "serde_json",
- "serde_yaml",
  "tempfile",
  "tokio",
  "toml 0.9.11+spec-1.1.0",
@@ -4932,6 +4935,7 @@ name = "codex-user-verification"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "core-foundation 0.10.1",
  "dirs",
  "objc2",
@@ -7452,11 +7456,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
  "rand_core 0.10.1",
  "wasip2",
  "wasip3",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -10002,6 +10008,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d1e908a416d6e9f725743b84a36feea40c4c131e805fbc26d61f9f451f36080"
 
 [[package]]
+name = "linkify"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92f9ae2f3d31697697311f016320fe984127e636b45cf5eb5c175b7eb103dadb"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "linktime-proc-macro"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10947,8 +10962,10 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e48e0b8b339e0d9d2ed4416b7f93f9d4daadff7d4dd797f89867cde11aeac607"
 dependencies = [
+ "block2",
  "objc2",
  "objc2-foundation",
+ "objc2-security",
 ]
 
 [[package]]
@@ -10961,6 +10978,17 @@ dependencies = [
  "objc2",
  "objc2-core-foundation",
  "objc2-foundation",
+]
+
+[[package]]
+name = "objc2-security"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "709fe137109bd1e8b5a99390f77a7d8b2961dafc1a1c5db8f2e60329ad6d895a"
+dependencies = [
+ "bitflags 2.13.1",
+ "objc2",
+ "objc2-core-foundation",
 ]
 
 [[package]]
@@ -12189,14 +12217,15 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.15"
+version = "0.11.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fcb935c5bec503c2f0e306bdd3e58bb9029dcb14fa8d9ac76e3a5256ac0763e"
+checksum = "a9746dbde176634f4f2f1faf2404e30a31b2bc1e9cafb5329c95d8177a18c9fc"
 dependencies = [
  "bytes",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "lru-slab",
- "rand 0.9.3",
+ "rand 0.10.1",
+ "rand_pcg",
  "ring",
  "rustc-hash",
  "rustls",
@@ -12670,6 +12699,15 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "rand_pcg"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
+dependencies = [
+ "rand_core 0.10.1",
+]
 
 [[package]]
 name = "rand_regex"
@@ -13540,9 +13578,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "log",

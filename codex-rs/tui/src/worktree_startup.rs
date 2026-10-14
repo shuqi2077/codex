@@ -95,8 +95,10 @@ impl ManagedTuiWorktree {
 
 async fn latest_thread_cwd(path: Option<PathBuf>, fallback: PathBuf) -> PathBuf {
     let Some(path) = path else { return fallback };
-    tokio::task::spawn_blocking(move || {
-        let reader = codex_rollout::open_rollout_seekable_reader(&path).ok()?;
+    let (stop, keep_running) = tokio::sync::oneshot::channel::<()>();
+    let result = tokio::task::spawn_blocking(move || {
+        let reader =
+            codex_rollout::open_rollout_seekable_reader(&path, || stop.is_closed()).ok()?;
         let mut scanner = codex_rollout::ReverseJsonlScanner::new(reader).ok()?;
         while let Some(outcome) = scanner.scan_next_rollout_line().ok()? {
             if let codex_rollout::ScanOutcome::Parsed(codex_rollout::RolloutLine {
@@ -112,7 +114,9 @@ async fn latest_thread_cwd(path: Option<PathBuf>, fallback: PathBuf) -> PathBuf 
     .await
     .ok()
     .flatten()
-    .unwrap_or(fallback)
+    .unwrap_or(fallback);
+    drop(keep_running);
+    result
 }
 
 #[allow(clippy::too_many_arguments)]

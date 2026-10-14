@@ -43,6 +43,7 @@ fn mcp_call_metric_outcome_distinguishes_request_and_tool_errors() {
             status: "ok",
             error_type: None,
             error_code: None,
+            approval_source: None,
         }
     );
     assert_eq!(
@@ -54,6 +55,7 @@ fn mcp_call_metric_outcome_distinguishes_request_and_tool_errors() {
             status: "error",
             error_type: Some(MCP_CALL_ERROR_TYPE_TOOL_RESULT),
             error_code: Some("RATE_LIMITED".to_string()),
+            approval_source: None,
         }
     );
     assert_eq!(
@@ -62,6 +64,7 @@ fn mcp_call_metric_outcome_distinguishes_request_and_tool_errors() {
             status: "error",
             error_type: Some(MCP_CALL_ERROR_TYPE_MCP_REQUEST),
             error_code: Some(MCP_CALL_ERROR_CODE_UNKNOWN.to_string()),
+            approval_source: None,
         }
     );
 }
@@ -79,6 +82,7 @@ fn mcp_call_metric_outcome_reports_server_tool_error_codes() {
             status: "error",
             error_type: Some(MCP_CALL_ERROR_TYPE_TOOL_RESULT),
             error_code: Some("arbitrary-user-value".to_string()),
+            approval_source: None,
         }
     );
 }
@@ -105,6 +109,7 @@ fn mcp_call_metric_outcome_reads_auth_error_code_from_meta() {
             status: "error",
             error_type: Some(MCP_CALL_ERROR_TYPE_TOOL_RESULT),
             error_code: Some("UNAUTHORIZED".to_string()),
+            approval_source: None,
         }
     );
 }
@@ -123,6 +128,7 @@ fn mcp_call_metric_outcome_bounds_and_sanitizes_error_code() {
             status: "error",
             error_type: Some(MCP_CALL_ERROR_TYPE_TOOL_RESULT),
             error_code: Some(format!("BAD_CODE_{}", "x".repeat(247))),
+            approval_source: None,
         }
     );
 }

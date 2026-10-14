@@ -458,9 +458,13 @@ fn namespace_description_change_does_not_repeat_unchanged_tools(
         if expected.is_empty() {
             Vec::new()
         } else {
-            vec![ContextualUserFragment::into(DeveloperInstructions::new(
-                expected,
-            ))]
+            vec![ContextualUserFragment::into(
+                DeveloperInstructions::new(expected).with_metadata(
+                    codex_protocol::models::ContentItemMetadata::tool(Some(
+                        codex_protocol::models::ContentItemNamespace::Functions,
+                    )),
+                ),
+            )]
         }
     );
     assert!(

@@ -13,11 +13,12 @@ async fn decisions_disagreement_failures_and_disabled_flag_preserve_baseline() -
         ("cannot_escalate", true, 200, "high", "low", 0.0),
         ("cannot_lower", true, 200, "low", "high", 1.0),
         ("candidate_failure", true, 403, "low", "low", 0.0),
+        ("unsupported_skills", true, 200, "low", "low", 0.0),
         ("baseline_failure", true, 200, "low", "invalid", 1.0),
     ] {
         let server = responses::start_mock_server().await;
         let fixture = GuardianFailureFixture::with_config(&format!(
-            "[features]\nguardianv2_decisions_comparison = {enabled}\n"
+            "[features]\nguardianv2_decisions_comparison = {enabled}\n[features.guardianv2]\nasync_classifier_mode = \"snapshot\"\n"
         ))
         .await?;
         let test = &fixture.test;
@@ -69,7 +70,9 @@ async fn decisions_disagreement_failures_and_disabled_flag_preserve_baseline() -
                     "choice":choice}]
                 })),
             )
-            .expect(/*r*/ u64::from(enabled && case != "not_initialized"))
+            .expect(/*r*/ u64::from(
+                enabled && !matches!(case, "not_initialized" | "unsupported_skills"),
+            ))
             .mount(&decisions_server)
             .await;
         // Inject only the transport, using the existing mock HTTP server instead of credentials.
@@ -83,6 +86,11 @@ async fn decisions_disagreement_failures_and_disabled_flag_preserve_baseline() -
             )?);
         } else {
             assert!(store.get::<DecisionsSampler>().is_none());
+        }
+        if case == "unsupported_skills" {
+            store
+                .get_or_init(codex_core::context::GuardianReviewEvidence::default)
+                .record_trusted_skill("turn-1", "/skills/example/SKILL.md".into());
         }
         metrics.0.lock().unwrap().clear();
         fixture.score_tool(ToolName::plain("read_file")).await;
@@ -135,6 +143,7 @@ async fn decisions_disagreement_failures_and_disabled_flag_preserve_baseline() -
             }
             let (outcome, reason) = match case {
                 "not_initialized" => ("skipped", "not_initialized"),
+                "unsupported_skills" => ("skipped", "trusted_skills"),
                 "candidate_failure" => ("failure", "http_403"),
                 _ => ("success", "none"),
             };
@@ -153,7 +162,7 @@ async fn decisions_disagreement_failures_and_disabled_flag_preserve_baseline() -
                 )],
                 "{case}"
             );
-            if case == "not_initialized" {
+            if matches!(case, "not_initialized" | "unsupported_skills") {
                 let comparisons = metrics.0.lock().unwrap().iter().filter(|sample| matches!(sample,
                     RecordedMetric::Counter(name, _, _) if name == "codex.guardian_v2.decisions_comparison.comparison"))
                     .cloned().collect::<Vec<_>>();
@@ -181,7 +190,11 @@ async fn decisions_disagreement_failures_and_disabled_flag_preserve_baseline() -
 #[tokio::test]
 async fn guardian_budget_rejects_both_backends_before_sending() -> Result<()> {
     skip_if_no_network!(Ok(()));
-    let fixture = GuardianFailureFixture::new().await?;
+    // This test replaces the snapshot sampler to force the Responses budget failure.
+    let fixture = GuardianFailureFixture::with_config(
+        "[features.guardianv2]\nenabled = true\nasync_classifier_mode = \"snapshot\"\n",
+    )
+    .await?;
     let server = responses::start_mock_server().await;
     let store = fixture.test.codex.thread_extension_data();
     let mut config = fixture.test.config.clone();

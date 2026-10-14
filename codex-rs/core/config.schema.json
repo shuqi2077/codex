@@ -353,6 +353,23 @@
       ],
       "type": "string"
     },
+    "AsyncCompactionConfigToml": {
+      "additionalProperties": false,
+      "description": "Background compaction settings. A threshold alone does not enable the feature.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "model_async_compact_threshold_percent": {
+          "description": "Percentage of the model's full context window that starts background compaction. Defaults to 65; valid values are 1–100, including when disabled.",
+          "format": "uint8",
+          "maximum": 100.0,
+          "minimum": 1.0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "AuthCredentialsStoreMode": {
       "description": "Determine where Codex should store CLI auth credentials.",
       "oneOf": [
@@ -767,6 +784,9 @@
                 }
               ]
             },
+            "async_compaction": {
+              "$ref": "#/definitions/FeatureToml_for_AsyncCompactionConfigToml"
+            },
             "auth_elicitation": {
               "type": "boolean"
             },
@@ -903,6 +923,9 @@
               "type": "boolean"
             },
             "executor_capability_discovery": {
+              "type": "boolean"
+            },
+            "executor_capability_discovery_v2": {
               "type": "boolean"
             },
             "experimental_use_unified_exec_tool": {
@@ -1407,7 +1430,7 @@
           "type": "string"
         },
         {
-          "description": "Copy every nonempty transcript or footer mouse selection on release.",
+          "description": "Copy every nonempty transcript, footer, or composer mouse selection on release.",
           "enum": [
             "always"
           ],
@@ -1580,6 +1603,16 @@
         }
       },
       "type": "object"
+    },
+    "FeatureToml_for_AsyncCompactionConfigToml": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "#/definitions/AsyncCompactionConfigToml"
+        }
+      ]
     },
     "FeatureToml_for_CodeModeConfigToml": {
       "anyOf": [
@@ -1930,7 +1963,7 @@
               "$ref": "#/definitions/AsyncClassifierMode"
             }
           ],
-          "description": "Classifier experiment override. Otherwise use the model default, then snapshots."
+          "description": "Classifier mode override. Otherwise use the model default, then conversation."
         },
         "classifier_instructions": {
           "type": "string"
@@ -2915,6 +2948,10 @@
         },
         "disable_direct_message": {
           "description": "Disable the model's direct-message tools; spawning and automatic child results remain available.",
+          "type": "boolean"
+        },
+        "disable_native_tools": {
+          "description": "Hide native multi-agent tools while retaining the V2 runtime for host-provided tools.",
           "type": "boolean"
         },
         "enabled": {
@@ -4646,11 +4683,11 @@
             }
           ],
           "default": "auto",
-          "description": "Copy selected transcript or footer text when the mouse button is released. Defaults to `auto`: enabled except in direct terminals known to forward their native copy shortcut (Ghostty 1.2+, Kitty on macOS, Windows Terminal, and VS Code on Windows). Unknown terminals, Ghostty without a recognized version, and tmux/Zellij default to copying."
+          "description": "Copy selected transcript, footer, or composer text when the mouse button is released. Defaults to `auto`: enabled except in direct terminals known to forward their native copy shortcut (Ghostty 1.2+, Kitty on macOS, Windows Terminal, and VS Code on Windows). Unknown terminals, Ghostty without a recognized version, and tmux/Zellij default to copying."
         },
         "copy_on_select_clear_selection": {
           "default": false,
-          "description": "Deselect transcript text after Copy on select confirms clipboard delivery. Defaults to `false` and has no effect when Copy on select is off.",
+          "description": "Deselect read-only transcript or footer text after Copy on select confirms delivery. Editable composer selections remain visible. Defaults to `false` and has no effect when Copy on select is off.",
           "type": "boolean"
         },
         "disable_paste_burst": {
@@ -7078,6 +7115,9 @@
             }
           ]
         },
+        "async_compaction": {
+          "$ref": "#/definitions/FeatureToml_for_AsyncCompactionConfigToml"
+        },
         "auth_elicitation": {
           "type": "boolean"
         },
@@ -7214,6 +7254,9 @@
           "type": "boolean"
         },
         "executor_capability_discovery": {
+          "type": "boolean"
+        },
+        "executor_capability_discovery_v2": {
           "type": "boolean"
         },
         "experimental_use_unified_exec_tool": {

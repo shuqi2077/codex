@@ -1500,22 +1500,6 @@ async fn startup_thread_started_discards_another_threads_buffered_events() {
     ))
     .await
     .expect("embedded app server");
-    app.handle_app_server_event(
-        &app_server,
-        codex_app_server_client::AppServerEvent::ServerRequest(Box::new(
-            ServerRequest::CurrentTimeRead {
-                request_id: AppServerRequestId::Integer(2),
-                params: codex_app_server_protocol::CurrentTimeReadParams {
-                    thread_id: other_thread_id.to_string(),
-                },
-            },
-        )),
-    )
-    .await;
-    assert!(app.pending_primary_events.iter().any(|event| {
-        matches!(event, ThreadBufferedEvent::Request(request)
-            if matches!(request.as_ref(), ServerRequest::CurrentTimeRead { .. }))
-    }));
     let thread_id = ThreadId::new();
     app.handle_startup_thread_started(
         &mut app_server,

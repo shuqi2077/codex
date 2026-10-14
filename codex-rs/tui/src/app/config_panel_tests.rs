@@ -5,12 +5,35 @@ use crate::AppServerTarget;
 use crate::app::test_support::make_test_app;
 use crate::app_event::AppEvent;
 use crate::chatwidget::tests::make_chatwidget_manual_with_sender;
+use crate::chatwidget::tests::render_bottom_popup;
+use crate::config_panel::ConfigEditor;
+use crate::config_panel::ConfigEditorHandoff;
 use crate::local_settings::LocalSettings;
 use codex_protocol::config_types::TrustLevel;
 use pretty_assertions::assert_eq;
+use tokio::sync::mpsc::UnboundedReceiver;
+
+fn open_effects_editor(app: &mut App) {
+    let handoff = ConfigEditorHandoff::new(
+        ConfigEditor::Effects,
+        crate::key_hint::plain(KeyCode::Enter),
+    );
+    handoff.mark_activation_inactive();
+    app.chat_widget.open_config_editor(
+        handoff,
+        crate::config_panel::ResumeCurrentAvailability::Available,
+    );
+}
+
+fn next_config_preference(rx: &mut UnboundedReceiver<AppEvent>) -> Result<ConfigPreference> {
+    let AppEvent::SaveConfigPreference(preference) = rx.try_recv()? else {
+        panic!("expected config preference save");
+    };
+    Ok(preference)
+}
 
 #[tokio::test]
-async fn config_toggle_save_uses_host_config_while_offline() -> Result<()> {
+async fn config_toggle_save_uses_host_config_and_applies_live_while_offline() -> Result<()> {
     let root = tempfile::tempdir()?;
     let home = root.path().join("home");
     let local_cwd = root.path().join("local");
@@ -80,18 +103,36 @@ async fn config_toggle_save_uses_host_config_while_offline() -> Result<()> {
     ))
     .await?;
 
+    app.chat_widget.handle_key_event(KeyCode::Char('a').into());
+    assert!(app.chat_widget.is_in_paste_burst());
+    Box::pin(app.handle_event(
+        &mut tui,
+        &mut app_server,
+        AppEvent::SaveConfigPreference(ConfigPreference::Toggle {
+            setting: ConfigToggle::PasteDetection,
+            enabled: false,
+        }),
+    ))
+    .await?;
+
     assert_eq!(
         (
             app.local_settings.tui.auto_recap,
             app.chat_widget.local_settings.tui.auto_recap,
             app.chat_widget.config_panel_tui.auto_recap,
+            app.local_settings.tui.disable_paste_burst,
+            app.chat_widget.local_settings.tui.disable_paste_burst,
         ),
-        (true, true, false),
+        (false, false, false, Some(true), Some(true)),
     );
+    assert!(!app.chat_widget.is_in_paste_burst());
+    app.chat_widget.handle_key_event(KeyCode::Char('b').into());
+    assert!(!app.chat_widget.is_in_paste_burst());
     let saved: toml::Value = toml::from_str(&std::fs::read_to_string(
         &app.local_settings.user_config_path,
     )?)?;
     assert_eq!(saved["tui"]["auto_recap"].as_bool(), Some(false));
+    assert_eq!(saved["tui"]["disable_paste_burst"].as_bool(), Some(true));
     assert_eq!(app.launch_cwd, local_cwd.to_path_buf());
     assert_eq!(
         (&app.config.cwd, &app.chat_widget.config_ref().cwd),
@@ -99,6 +140,124 @@ async fn config_toggle_save_uses_host_config_while_offline() -> Result<()> {
     );
 
     app_server.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn effects_editor_refresh_preserves_pending_toggles() -> Result<()> {
+    let (mut app, mut rx, _ops) = crate::app::tests::make_test_app_with_channels().await;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    app.local_settings.tui.animations = false;
+    app.chat_widget.local_settings.tui.animations = false;
+    app.chat_widget.config_panel_tui.animations = false;
+    open_effects_editor(&mut app);
+
+    app.chat_widget.handle_key_event(KeyCode::Enter.into());
+    app.chat_widget.handle_key_event(KeyCode::Enter.into());
+    let first_preference = next_config_preference(&mut rx)?;
+    app.save_config_preference(&mut tui, first_preference).await;
+
+    insta::assert_snapshot!(
+        "effects_picker_after_animation_save",
+        render_bottom_popup(&app.chat_widget, /*width*/ 80)
+    );
+
+    app.chat_widget.handle_key_event(KeyCode::Enter.into());
+    let second_preference = next_config_preference(&mut rx)?;
+    app.save_config_preference(&mut tui, second_preference)
+        .await;
+    let third_preference = next_config_preference(&mut rx)?;
+    assert_eq!(
+        third_preference,
+        ConfigPreference::Toggle {
+            setting: ConfigToggle::Animations,
+            enabled: true,
+        }
+    );
+    app.save_config_preference(&mut tui, third_preference).await;
+    assert!(app.chat_widget.config_panel_tui.animations);
+    Ok(())
+}
+
+#[tokio::test]
+async fn effects_editor_preserves_pending_stars_while_disabled() -> Result<()> {
+    let (mut app, mut rx, _ops) = crate::app::tests::make_test_app_with_channels().await;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    app.local_settings.tui.animations = true;
+    app.local_settings.tui.effects.starfield = true;
+    app.chat_widget.local_settings.tui.animations = true;
+    app.chat_widget.local_settings.tui.effects.starfield = true;
+    app.chat_widget.config_panel_tui.animations = true;
+    app.chat_widget.config_panel_tui.effects.starfield = true;
+    open_effects_editor(&mut app);
+
+    for shortcut in ['1', '2', '2'] {
+        app.chat_widget
+            .handle_key_event(KeyCode::Char(shortcut).into());
+    }
+    let animations_off = next_config_preference(&mut rx)?;
+    assert_eq!(
+        animations_off,
+        ConfigPreference::Toggle {
+            setting: ConfigToggle::Animations,
+            enabled: false,
+        }
+    );
+    app.save_config_preference(&mut tui, animations_off).await;
+
+    app.chat_widget.handle_key_event(KeyCode::Char('1').into());
+    for _ in 0..3 {
+        let preference = next_config_preference(&mut rx)?;
+        app.save_config_preference(&mut tui, preference).await;
+    }
+
+    assert_eq!(
+        (
+            app.chat_widget.config_panel_tui.animations,
+            app.chat_widget.config_panel_tui.effects.starfield,
+        ),
+        (true, true),
+    );
+    app.chat_widget.handle_key_event(KeyCode::Char('2').into());
+    assert_eq!(
+        next_config_preference(&mut rx)?,
+        ConfigPreference::Toggle {
+            setting: ConfigToggle::ComposerStars,
+            enabled: false,
+        }
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn effects_editor_reset_clears_pending_toggle_state() -> Result<()> {
+    let (mut app, mut rx, _ops) = crate::app::tests::make_test_app_with_channels().await;
+    let mut tui = crate::tui::test_support::make_test_tui()?;
+    app.local_settings.tui.animations = true;
+    app.local_settings.tui.effects.starfield = true;
+    app.chat_widget.local_settings.tui.animations = true;
+    app.chat_widget.local_settings.tui.effects.starfield = true;
+    app.chat_widget.config_panel_tui.animations = true;
+    app.chat_widget.config_panel_tui.effects.starfield = true;
+    open_effects_editor(&mut app);
+
+    app.chat_widget.handle_key_event(KeyCode::Char('1').into());
+    app.chat_widget.handle_key_event(KeyCode::Char('2').into());
+    let _animations_off = next_config_preference(&mut rx)?;
+    let stars_off = next_config_preference(&mut rx)?;
+
+    app.chat_widget.refresh_config_panel(/*notice*/ None);
+    app.save_config_preference(&mut tui, stars_off).await;
+
+    assert!(!app.chat_widget.config_panel_tui.effects.starfield);
+    app.chat_widget.handle_key_event(KeyCode::Char('2').into());
+    assert_eq!(
+        next_config_preference(&mut rx)?,
+        ConfigPreference::Toggle {
+            setting: ConfigToggle::ComposerStars,
+            enabled: true,
+        }
+    );
     Ok(())
 }
 
@@ -146,7 +305,7 @@ async fn notification_test_delay_rejects_cancelled_and_rescheduled_timers() -> R
     assert!(
         cell.display_lines(/*width*/ 120)
             .iter()
-            .any(|line| line.to_string().starts_with("• Test sent to terminal · "))
+            .any(|line| line.to_string().starts_with("• Test sent · "))
     );
 
     app.schedule_config_notification_test();

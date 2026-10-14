@@ -47,6 +47,7 @@ pub(super) fn sampler_failure_reason(error: &LunaSamplerError) -> &'static str {
             ApiError::Transport(TransportError::ResponseTooLarge { .. }) => "response_too_large",
             ApiError::Transport(TransportError::Policy(_)) => "network_policy_denied",
             ApiError::Stream(_) | ApiError::ContentFilter => "stream_error",
+            ApiError::ResponseIncomplete(_) => "incomplete_response",
             ApiError::ContextWindowExceeded => "context_window_exceeded",
             ApiError::QuotaExceeded => "quota_exceeded",
             ApiError::UsageNotIncluded => "usage_not_included",
@@ -183,9 +184,14 @@ pub(super) fn record_decisions_comparison_outcome(
 // Keep all backend diagnostics bounded and free of raw transport data.
 pub(super) fn decisions_failure_reason(error: DecisionsError) -> &'static str {
     match error {
-        DecisionsError::Credentials => "provider_error",
+        DecisionsError::Credentials => "credentials_unavailable",
         DecisionsError::ClientSetup => "request_build_error",
         DecisionsError::UnsupportedEvidence => "decisions_unsupported_evidence",
+        DecisionsError::UnsupportedDeveloperMessage => "developer_message",
+        DecisionsError::UnsupportedNonUserMessage => "non_user_message",
+        DecisionsError::UnsupportedTrustedSkills => "trusted_skills",
+        DecisionsError::UnsupportedImage => "image",
+        DecisionsError::UnsupportedAudio => "audio",
         DecisionsError::InputTooLarge => "input_too_large",
         DecisionsError::Timeout => "transport_timeout",
         // The adapter erases transport details; do not claim a specific network failure.
@@ -213,9 +219,15 @@ pub(super) fn record_decisions_comparison(
         Ok((result, duration)) => {
             let outcome = match &result {
                 Ok(_) => "success",
-                Err(DecisionsError::UnsupportedEvidence | DecisionsError::InputTooLarge) => {
-                    "skipped"
-                }
+                Err(
+                    DecisionsError::UnsupportedEvidence
+                    | DecisionsError::UnsupportedDeveloperMessage
+                    | DecisionsError::UnsupportedNonUserMessage
+                    | DecisionsError::UnsupportedTrustedSkills
+                    | DecisionsError::UnsupportedImage
+                    | DecisionsError::UnsupportedAudio
+                    | DecisionsError::InputTooLarge,
+                ) => "skipped",
                 Err(_) => "failure",
             };
             record_decisions_comparison_outcome(

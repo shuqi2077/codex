@@ -135,6 +135,7 @@ pub mod sandboxing;
 mod session_prefix;
 mod skills;
 pub(crate) use skills::maybe_emit_implicit_skill_invocation;
+#[cfg(test)]
 pub(crate) use skills::skills_load_input_from_config;
 mod stream_events_utils;
 pub mod test_support;
@@ -147,6 +148,7 @@ pub use codex_protocol::config_types::ModelProviderAuthInfo;
 mod event_mapping;
 pub use codex_prompts as review_prompts;
 mod thread_manager;
+mod thread_spawn;
 pub(crate) mod web_search;
 pub(crate) mod windows_sandbox_read_grants;
 pub use agent::control::ThreadEvictionOutcome;

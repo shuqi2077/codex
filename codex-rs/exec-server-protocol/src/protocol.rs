@@ -966,7 +966,8 @@ pub struct CapabilityRootsDiscoverResponse {
     pub roots: Vec<CapabilityRootDiscovery>,
 }
 
-/// Recognized UTF-8 capability file materialized by the exec-server.
+/// UTF-8 capability contents materialized by the exec-server.
+/// `path` identifies the source file; V2 inline MCP contents are extracted from its manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CapabilityTextFile {
@@ -979,7 +980,9 @@ pub struct CapabilityTextFile {
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredPluginFiles {
     pub manifest: CapabilityTextFile,
-    /// File-backed MCP declarations, including the conventional `.mcp.json` fallback.
+    /// MCP declarations from a selected file, including the conventional `.mcp.json` fallback.
+    /// V2 also materializes inline declarations, using the manifest as the source path.
+    /// V1 leaves inline declarations only in `manifest`.
     #[serde(default)]
     pub mcp_config: Option<CapabilityTextFile>,
     /// File-backed connector declarations.

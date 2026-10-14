@@ -98,7 +98,18 @@ async fn retained_tool_output_survives_compaction_and_resume() -> Result<()> {
             assert!(request.inputs_of_type("compaction_trigger").is_empty());
         }
         let compact_outputs = requests[3].inputs_of_type("function_call_output");
-        assert_eq!(compact_outputs.len(), 4);
+        assert_eq!(
+            compact_outputs
+                .iter()
+                .map(|output| output["name"].as_str())
+                .collect::<Vec<_>>(),
+            [
+                Some("send_message_to_thread"),
+                Some("task_details"),
+                Some("send_message_to_thread"),
+                Some("progress"),
+            ]
+        );
         // Emergency trimming removes the trailing log, then stops at the marked instruction.
         assert_eq!(compact_outputs[1]["output"], details);
         if enabled {

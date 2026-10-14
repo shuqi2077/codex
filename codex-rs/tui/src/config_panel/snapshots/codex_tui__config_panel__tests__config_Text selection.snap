@@ -1,21 +1,18 @@
 ---
 source: tui/src/config_panel/config_panel_tests.rs
-assertion_line: 71
 expression: "render(&panel, 140)"
 ---
 
   Configuration
-  Changes save automatically; some apply after restarting Codex.
-  Settings in this group: 3.
+  Changes save automatically
 
    Appearance   Notifications   Input   Sessions   Text selection
 
-› Copy on select           Auto · On ›          Copy transcript selections on release. Auto uses terminal defaults.
-      Deselect after copy  [ ] Off              Remove the selection highlight after Copy on select succeeds.
-  Right-click paste        Auto · Off ›         Paste when nothing is selected. Auto follows the platform default; On also enables macOS.
+› Copy on select        Auto · On ›          Copy transcript, footer, and composer selections on release; Auto follows terminal defaults
+  Deselect after copy   [ ] Off              Remove read-only transcript and footer highlights after automatic copy succeeds
+  Right-click paste     Auto · Off ›         Paste when nothing is selected, with Auto following platform defaults and On also enabling mac…
 
 
 
 
-
-  left/right group · / search · enter edit setting · esc close
+  left/right group · / search · enter open · esc clear search/close

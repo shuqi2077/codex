@@ -89,24 +89,6 @@ impl ConfigPreference {
 }
 
 impl ConfigToggle {
-    const RESTART_REQUIRED: [Self; 5] = [
-        Self::Animations,
-        Self::AutomaticRecaps,
-        Self::ComposerStars,
-        Self::PasteDetection,
-        Self::Tips,
-    ];
-
-    pub(crate) fn requires_restart(self) -> bool {
-        Self::RESTART_REQUIRED.contains(&self)
-    }
-
-    pub(crate) fn preserve_restart_required(target: &mut Tui, source: &Tui) {
-        for setting in Self::RESTART_REQUIRED {
-            setting.adopt(target, source);
-        }
-    }
-
     pub(crate) fn edit(self, enabled: bool) -> ConfigEdit {
         let (key, value) = match self {
             Self::ComposerStars => {

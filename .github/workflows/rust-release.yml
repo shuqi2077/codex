@@ -1651,10 +1651,10 @@ jobs:
 
           # Use the commit message for the commit the tag points at (not the
           # annotated tag message).
-          git log -1 --format=%B "${commit}" > "${notes_path}"
-          # Ensure trailing newline so GitHub's markdown renderer doesn't
-          # occasionally run the last line into subsequent content.
-          echo >> "${notes_path}"
+          # Preserve the previous publisher's 124,999-character cap, reserving
+          # the last character for a trailing newline for GitHub's renderer.
+          git log -1 --format=%B "${commit}" |
+            python3 -c 'import sys; print(sys.stdin.read()[:124998])' > "${notes_path}"
 
           echo "path=${notes_path}" >> "${GITHUB_OUTPUT}"
 
@@ -1750,22 +1750,45 @@ jobs:
           mv dist/x86_64-pc-windows-msvc/install.ps1 dist/install.ps1
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          name: ${{ steps.release_name.outputs.name }}
-          tag_name: ${{ github.ref_name }}
-          body_path: ${{ steps.release_notes.outputs.path }}
-          files: dist/**
-          overwrite_files: true
-          # Release asset uploads follow normal REST API behavior. GitHub recommends
-          # serial API requests to avoid secondary rate limits:
-          # https://docs.github.com/en/rest/releases/assets#upload-a-release-asset
-          # https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#avoid-concurrent-requests
-          preserve_order: true
-          make_latest: ${{ steps.release_name.outputs.make_latest }}
-          # Mark as prerelease only when the version has a suffix after x.y.z
-          # (e.g. -alpha, -beta). Otherwise publish a normal release.
-          prerelease: ${{ steps.release_name.outputs.prerelease }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NAME: ${{ steps.release_name.outputs.name }}
+          RELEASE_NOTES: ${{ steps.release_notes.outputs.path }}
+          MAKE_LATEST: ${{ steps.release_name.outputs.make_latest }}
+          PRERELEASE: ${{ steps.release_name.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          # Look up this tag, including drafts, without listing release history.
+          # API errors must fail the step rather than look like an absent release.
+          # shellcheck disable=SC2016
+          exists="$(gh api graphql \
+            -f query='query($owner:String!,$repo:String!,$tag:String!){repository(owner:$owner,name:$repo){release(tagName:$tag){databaseId}}}' \
+            -f owner="$GITHUB_REPOSITORY_OWNER" \
+            -f repo="${GITHUB_REPOSITORY#*/}" \
+            -f tag="$GITHUB_REF_NAME" \
+            --jq '.data.repository.release != null')"
+          release_args=(
+            --repo "$GITHUB_REPOSITORY"
+            --title "$RELEASE_NAME"
+            --notes-file "$RELEASE_NOTES"
+            --prerelease="$PRERELEASE"
+          )
+          if [[ "$exists" == false ]]; then
+            # Prereleases must be created directly to keep prereleased events.
+            draft=true
+            if [[ "$PRERELEASE" == true ]]; then
+              draft=false
+            fi
+            gh release create "$GITHUB_REF_NAME" "${release_args[@]}" \
+              --draft="$draft" --verify-tag --latest=false
+          fi
+
+          mapfile -d '' assets < <(find dist -type f -print0 | sort -z)
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$GITHUB_REF_NAME" "${release_args[@]}" \
+            --draft=false --latest="$MAKE_LATEST"
 
   publish-r2-assets:
     name: publish-r2-assets

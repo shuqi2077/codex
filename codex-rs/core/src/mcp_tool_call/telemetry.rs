@@ -7,6 +7,8 @@ use codex_protocol::mcp::CallToolResult;
 use serde_json::Value as JsonValue;
 use tracing::Span;
 
+use crate::tools::ApprovalResolutionSource;
+
 const MCP_CALL_COUNT_METRIC: &str = "codex.mcp.call";
 const MCP_CALL_DURATION_METRIC: &str = "codex.mcp.call.duration_ms";
 const MCP_CALL_ERROR_COUNT_METRIC: &str = "codex.mcp.call.error";
@@ -25,6 +27,7 @@ pub(super) struct McpCallMetricOutcome {
     status: &'static str,
     error_type: Option<&'static str>,
     error_code: Option<String>,
+    approval_source: Option<&'static str>,
 }
 
 impl McpCallMetricOutcome {
@@ -33,6 +36,21 @@ impl McpCallMetricOutcome {
             status,
             error_type: None,
             error_code: None,
+            approval_source: None,
+        }
+    }
+
+    pub(super) fn approval_cancelled(source: Option<ApprovalResolutionSource>) -> Self {
+        Self {
+            status: "error",
+            error_type: Some("approval"),
+            error_code: Some("cancelled".to_string()),
+            approval_source: Some(match source {
+                Some(ApprovalResolutionSource::Guardian) => "guardian",
+                Some(ApprovalResolutionSource::User) => "user",
+                Some(ApprovalResolutionSource::Hook) => "hook",
+                None => "unknown",
+            }),
         }
     }
 }
@@ -69,6 +87,9 @@ pub(super) fn emit_mcp_call_metrics(
     let mut error_tags = tags;
     error_tags.push(("error_type", sanitize_metric_tag_value(error_type)));
     error_tags.push(("error_code", error_code.to_string()));
+    if let Some(approval_source) = outcome.approval_source {
+        error_tags.push(("approval_source", approval_source.to_string()));
+    }
     let error_tag_refs: Vec<(&str, &str)> = error_tags
         .iter()
         .map(|(key, value)| (*key, value.as_str()))
@@ -138,6 +159,7 @@ pub(super) fn mcp_call_metric_outcome(
                 status: "error",
                 error_type: Some(MCP_CALL_ERROR_TYPE_TOOL_RESULT),
                 error_code: Some(sanitize_metric_tag_value(&error_code)),
+                approval_source: None,
             }
         }
         Ok(_) => McpCallMetricOutcome::from_status("ok"),
@@ -145,6 +167,7 @@ pub(super) fn mcp_call_metric_outcome(
             status: "error",
             error_type: Some(MCP_CALL_ERROR_TYPE_MCP_REQUEST),
             error_code: Some(MCP_CALL_ERROR_CODE_UNKNOWN.to_string()),
+            approval_source: None,
         },
     }
 }

@@ -4,12 +4,11 @@ expression: "render(&picker, 100)"
 ---
 
   Resume directory
-  Choose which working directory to use when the current directory and saved session differ. A
-  directory passed with --cd takes precedence for that Codex session.
+  Choose the working directory when resuming, with --cd taking precedence for this session
 
 
 › 1. Ask (current)
-     Current directory (disabled)  Requires --cd for remote sessions.
+     Current directory (disabled)  Requires --cd for remote sessions
   2. Session directory
 
   enter select · esc back

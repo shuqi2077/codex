@@ -107,6 +107,14 @@ pub(crate) trait BottomPaneView: Renderable {
         None
     }
 
+    /// Current toggle values for list items that preserve local choices across refreshes.
+    fn selection_toggle_states(&self) -> Vec<Option<super::SelectionToggleState>> {
+        Vec::new()
+    }
+
+    /// Mark one previously emitted toggle action as complete.
+    fn complete_selection_toggle(&mut self, _index: usize) {}
+
     /// Current query for searchable list views that preserve filtering across refreshes.
     fn search_query(&self) -> Option<&str> {
         None

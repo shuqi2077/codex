@@ -407,6 +407,7 @@ libc = "0.2.182"
 # Keep SQLx's bundled SQLite on a version containing the WAL-reset corruption fix:
 # https://www.sqlite.org/wal.html#the_wal_reset_bug
 libsqlite3-sys = { version = "0.37", default-features = false }
+linkify = "0.11"
 log = "0.4"
 lru = "0.18.2"
 maplit = "1.0.2"
@@ -450,7 +451,7 @@ reqwest = { version = "0.12", features = ["cookies"] }
 rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "4048ac40e958fb1a7d614617a2ae8d26666ee2fa", version = "=3.5.1", default-features = false }
 runfiles = { git = "https://github.com/dzbarsky/rules_rust", rev = "b56cbaa8465e74127f1ea216f813cd377295ad81" }
 rustix = { version = "1.1.4", features = ["net"] }
-rustls = { version = "0.23.45", default-features = false, features = [
+rustls = { version = "0.23.46", default-features = false, features = [
     "aws_lc_rs",
     "std",
 ] }

@@ -134,6 +134,7 @@ async fn skill_world_state_fragments(
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id,
@@ -322,6 +323,7 @@ async fn host_world_state_records_catalog_metrics_on_publish_and_change() -> Tes
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -349,6 +351,7 @@ async fn host_world_state_records_catalog_metrics_on_publish_and_change() -> Tes
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -389,6 +392,7 @@ async fn host_world_state_records_catalog_metrics_on_publish_and_change() -> Tes
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -463,6 +467,7 @@ async fn persisted_host_snapshot_deduplicates_warning_after_reinitialization() -
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &model_info,
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -504,6 +509,7 @@ async fn persisted_host_snapshot_deduplicates_warning_after_reinitialization() -
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &model_info,
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-2",
@@ -597,6 +603,7 @@ async fn executor_cloud_and_host_share_catalog_world_state_flow() -> TestResult 
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -708,6 +715,7 @@ async fn nonempty_executor_empty_host_records_catalog_metrics() -> TestResult {
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -790,6 +798,7 @@ async fn host_world_state_uses_provider_catalog_with_core_compatible_rendering()
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -873,6 +882,7 @@ async fn shadow_selection_uses_host_catalog_when_instructions_are_disabled() -> 
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -1167,6 +1177,7 @@ async fn selected_executor_catalog_follows_step_availability_and_reuses_its_cach
     let available_sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -1232,6 +1243,7 @@ async fn selected_executor_catalog_follows_step_availability_and_reuses_its_cach
     let unavailable_sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: Some(&available_world_state),
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-2",
@@ -1271,6 +1283,7 @@ async fn selected_executor_catalog_follows_step_availability_and_reuses_its_cach
     let restored_sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: Some(&unavailable_world_state),
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-3",
@@ -1330,6 +1343,7 @@ async fn selected_executor_catalog_follows_step_availability_and_reuses_its_cach
         registry.context_contributors()[0]
             .contribute_world_state(WorldStateContributionInput {
                 previous_world_state: None,
+                executor_capability_discovery_v2: None,
                 model_info: &catalog_model_info(),
                 thread_id: codex_protocol::ThreadId::new(),
                 turn_id,
@@ -1358,6 +1372,7 @@ async fn selected_executor_catalog_follows_step_availability_and_reuses_its_cach
     let listing_disabled_sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-4",
@@ -1487,6 +1502,7 @@ async fn overlapping_executor_catalogs_render_their_own_roots() -> TestResult {
                     environments: &[],
                     ready_selected_capability_roots: &[root],
                     executor_capability_discovery: None,
+                    executor_capability_discovery_v2: None,
                     extension_metrics: None,
                     session_store: &session_store,
                     thread_store: &thread_store,
@@ -1762,6 +1778,7 @@ async fn catalog_rebalances_only_to_avoid_omissions_and_retains_the_allocation()
                         environments: &[],
                         ready_selected_capability_roots: if ready { &selected_roots } else { &[] },
                         executor_capability_discovery: None,
+                        executor_capability_discovery_v2: None,
                         extension_metrics: None,
                         session_store: &session_store,
                         thread_store: &thread_store,
@@ -2382,6 +2399,7 @@ async fn root_qualified_locator_selects_only_the_matching_executor_skill() -> Te
     registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -2519,6 +2537,7 @@ async fn model_context_window_scales_executor_and_cloud_catalogs() -> TestResult
     let sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &model_info,
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -2536,6 +2555,7 @@ async fn model_context_window_scales_executor_and_cloud_catalogs() -> TestResult
     let _repeated_sections = registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &model_info,
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",
@@ -2636,6 +2656,7 @@ async fn executor_catalog_emits_at_most_four_warnings() -> TestResult {
     registry.context_contributors()[0]
         .contribute_world_state(WorldStateContributionInput {
             previous_world_state: None,
+            executor_capability_discovery_v2: None,
             model_info: &catalog_model_info(),
             thread_id: codex_protocol::ThreadId::new(),
             turn_id: "turn-1",

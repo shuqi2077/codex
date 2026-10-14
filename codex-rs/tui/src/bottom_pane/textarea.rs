@@ -3159,6 +3159,22 @@ mod tests {
     }
 
     #[test]
+    fn super_line_editing_defaults_follow_macos_conventions() {
+        let mut textarea = ta_with("first\nsecond third");
+        textarea.set_cursor("first\nsecond".len());
+
+        textarea.input(KeyEvent::new(KeyCode::Left, KeyModifiers::SUPER));
+        assert_eq!(textarea.cursor(), "first\n".len());
+
+        textarea.input(KeyEvent::new(KeyCode::Right, KeyModifiers::SUPER));
+        assert_eq!(textarea.cursor(), textarea.text().len());
+
+        textarea.input(KeyEvent::new(KeyCode::Backspace, KeyModifiers::SUPER));
+        assert_eq!(textarea.text(), "first\n");
+        assert_eq!(textarea.cursor(), "first\n".len());
+    }
+
+    #[test]
     fn kill_current_line_removes_current_line_linewise() {
         let mut t = ta_with("abc\ndef\nghi");
         t.set_cursor(/*pos*/ 5);

@@ -18,6 +18,13 @@ use crossterm::event::KeyEventKind;
 
 impl ConfigPanel {
     fn setting_index(&self, selected: usize) -> Option<usize> {
+        if self
+            .picker
+            .search_query()
+            .is_some_and(|query| !query.is_empty())
+        {
+            return self.settings.get(selected).map(|_| selected);
+        }
         let tab = self
             .picker
             .active_tab_id()

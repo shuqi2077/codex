@@ -285,6 +285,9 @@ pub(super) async fn run_main_inner(
     })
     .await
     .map_err(std::io::Error::other)??;
+    // Snapshot the backend size sampled during init, before any viewport changes or resizes.
+    let initial_terminal_size = initialized_terminal.terminal.last_known_screen_size;
+    let terminal_size_tags = crate::terminal_size_telemetry::tags(initial_terminal_size);
     let startup_presentation::StartupPresentation {
         bootstrap_config,
         config_cwd,
@@ -684,6 +687,7 @@ pub(super) async fn run_main_inner(
         Vec::new()
     };
     let mut launch_tags = daemon_settings.to_vec();
+    launch_tags.extend(terminal_size_tags);
     launch_tags.extend([
         ("daemon_selection_reason", selection_reason),
         (
@@ -697,7 +701,9 @@ pub(super) async fn run_main_inner(
     ]);
     // Record the first connection attempt's actual mode, including embedded fallback; never reconnects.
     let launch_telemetry = move |target: &AppServerTarget, connected: bool| {
-        let Some(metrics) = metrics else { return };
+        let Some(metrics) = metrics else {
+            return Vec::new();
+        };
         let app_server_mode = match (connected, target) {
             (false, _) => "unconfirmed",
             (true, AppServerTarget::Embedded) => "in_process",
@@ -733,6 +739,8 @@ pub(super) async fn run_main_inner(
             ("multiplexer", multiplexer),
         ]);
         let _ = metrics.counter("codex.tui.start", /*inc*/ 1, &launch_tags);
+        launch_tags.retain(|(key, _)| !matches!(*key, "terminal_columns" | "terminal_rows"));
+        launch_tags
     };
     let launch_telemetry = daemon_telemetry::Launch(Some(launch_telemetry));
     let state_db = startup_draft

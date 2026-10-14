@@ -1,23 +1,21 @@
 ---
 source: tui/src/config_panel/config_panel_tests.rs
-assertion_line: 212
+assertion_line: 477
 expression: "render(&panel, 140)"
 ---
 
   Configuration
-  Changes save automatically; some apply after restarting Codex.
-  Saved · restart Codex to apply
+  Test sent · check terminal/system settings
 
    Appearance   Notifications   Input   Sessions   Text selection
 
-  Search › animations
+  Search › tips
 
-› Animations           [x] On               Animate the welcome screen, working indicator, and transitions. Restart Codex to apply.
-      Composer stars   [x] On               Animate stars in the composer. Requires animations and a restart.
-
+› Tips                  [x] On               Appearance · Show helpful shortcuts and suggestions
 
 
 
 
 
-  / search · enter edit setting · esc close
+
+  enter toggle · esc clear search

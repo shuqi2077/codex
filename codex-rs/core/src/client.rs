@@ -311,6 +311,11 @@ pub struct ModelClientSession {
     turn_state: Arc<OnceLock<String>>,
 }
 
+/// Executes HTTP Responses requests without owning a turn's WebSocket state.
+pub(crate) struct ResponsesHttpExecutor<'a> {
+    client: &'a ModelClient,
+}
+
 #[derive(Debug, Clone)]
 struct LastResponse {
     response_id: String,
@@ -687,7 +692,7 @@ impl ModelClient {
         self.state.provider.auth_manager()
     }
 
-    fn auth_owner_generation(&self) -> Option<u64> {
+    pub(crate) fn auth_owner_generation(&self) -> Option<u64> {
         self.auth_manager().map(|manager| {
             manager
                 .auth_change_state_receiver()
@@ -1001,6 +1006,12 @@ impl ModelClient {
             prefix.push(instructions);
         }
         input.splice(0..0, prefix);
+        if !model_info.use_responses_lite {
+            // Only RLite accepts per-content attribution until the Responses API schema expands.
+            for item in &mut input {
+                item.clear_content_item_metadata();
+            }
+        }
         if !is_openai {
             for item in &mut input {
                 item.clear_internal_chat_message_metadata_passthrough();
@@ -1433,6 +1444,12 @@ impl ModelClientSession {
             .replace(Arc::clone(tools));
         previous.is_some_and(|previous| previous != *tools)
     }
+}
+
+impl<'a> ResponsesHttpExecutor<'a> {
+    pub(crate) fn new(client: &'a ModelClient) -> Self {
+        Self { client }
+    }
 
     #[allow(clippy::too_many_arguments)]
     /// Builds shared Responses API transport options and request-body options.
@@ -1441,6 +1458,7 @@ impl ModelClientSession {
     /// regardless of transport choice.
     async fn build_responses_options(
         &self,
+        turn_state: &Arc<OnceLock<String>>,
         responses_metadata: &CodexResponsesMetadata,
         compression: Compression,
         use_responses_lite: bool,
@@ -1452,7 +1470,7 @@ impl ModelClientSession {
             extra_headers: {
                 let mut headers = build_responses_headers(
                     self.client.state.beta_features_header.as_deref(),
-                    Some(&self.turn_state),
+                    Some(turn_state),
                 );
                 add_originator_header(&mut headers, self.client.state.originator.as_str());
                 headers.extend(
@@ -1466,8 +1484,18 @@ impl ModelClientSession {
                 headers
             },
             compression,
-            turn_state: Some(Arc::clone(&self.turn_state)),
+            turn_state: Some(Arc::clone(turn_state)),
         }
+    }
+}
+
+impl ModelClientSession {
+    pub(crate) fn turn_state_with_auth_owner(&self) -> (Option<String>, Option<u64>) {
+        let owner = self.client.auth_owner_generation();
+        let turn_state = (self.websocket_session.auth_owner_generation == owner)
+            .then(|| self.turn_state.get().cloned())
+            .flatten();
+        (turn_state, owner)
     }
 
     /// Checks whether the current request is an incremental extension of the previous request.
@@ -1705,7 +1733,9 @@ impl ModelClientSession {
                 "websocket connection is unavailable".to_string(),
             ))
     }
+}
 
+impl ResponsesHttpExecutor<'_> {
     fn responses_request_compression(&self, auth: Option<&CodexAuth>) -> Compression {
         if self.client.state.enable_request_compression
             && auth.is_some_and(CodexAuth::uses_codex_backend)
@@ -1717,7 +1747,7 @@ impl ModelClientSession {
         }
     }
 
-    /// Streams a turn via the OpenAI Responses API.
+    /// Streams a turn via the OpenAI Responses API over HTTP.
     ///
     /// Handles reasoning summaries, verbosity, and the `text` controls used for output schemas.
     #[allow(clippy::too_many_arguments)]
@@ -1734,8 +1764,11 @@ impl ModelClientSession {
             turn.has_metadata_header = responses_metadata.has_turn_metadata()
         )
     )]
-    async fn stream_responses_api(
+    pub(crate) async fn stream_responses_http(
         &self,
+        turn_state: &Arc<OnceLock<String>>,
+        expected_auth_owner: Option<u64>,
+        event_sender: Option<&Sender<ProtocolEvent>>,
         prompt: &Prompt,
         model_info: &ModelInfo,
         session_telemetry: &SessionTelemetry,
@@ -1756,6 +1789,12 @@ impl ModelClientSession {
                 .client
                 .current_client_setup(ClientRouting::Workspace)
                 .await?;
+            if expected_auth_owner.is_some_and(|owner| {
+                Some(owner) != client_setup.auth_owner_generation
+                    || Some(owner) != self.client.auth_owner_generation()
+            }) {
+                return Err(CodexErr::TurnAborted);
+            }
             let include_internal = self
                 .client
                 .state
@@ -1776,7 +1815,7 @@ impl ModelClientSession {
                 client_setup.agent_identity_telemetry.clone(),
                 pending_retry,
             );
-            let (request_telemetry, sse_telemetry) = Self::build_streaming_telemetry(
+            let (request_telemetry, sse_telemetry) = ModelClientSession::build_streaming_telemetry(
                 session_telemetry,
                 request_auth_context,
                 RequestRouteTelemetry::for_endpoint("/responses"),
@@ -1785,6 +1824,7 @@ impl ModelClientSession {
             let compression = self.responses_request_compression(client_setup.auth.as_ref());
             let mut options = self
                 .build_responses_options(
+                    turn_state,
                     responses_metadata,
                     compression,
                     model_info.use_responses_lite,
@@ -1888,7 +1928,7 @@ impl ModelClientSession {
                             &mut provider_auth_recovery_attempted,
                             session_telemetry,
                             &self.client.state.provider,
-                            self.client.event_sender.as_ref(),
+                            event_sender,
                             responses_metadata.turn_id.as_deref(),
                         )
                         .await?,
@@ -1909,7 +1949,9 @@ impl ModelClientSession {
             }
         }
     }
+}
 
+impl ModelClientSession {
     /// Streams a turn via the Responses API over WebSocket transport.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
@@ -2361,17 +2403,21 @@ impl ModelClientSession {
                     }
                 }
 
-                self.stream_responses_api(
-                    prompt,
-                    model_info,
-                    session_telemetry,
-                    effort,
-                    summary,
-                    service_tier,
-                    responses_metadata,
-                    inference_trace,
-                )
-                .await
+                ResponsesHttpExecutor::new(&self.client)
+                    .stream_responses_http(
+                        &self.turn_state,
+                        /*expected_auth_owner*/ None,
+                        self.client.event_sender.as_ref(),
+                        prompt,
+                        model_info,
+                        session_telemetry,
+                        effort,
+                        summary,
+                        service_tier,
+                        responses_metadata,
+                        inference_trace,
+                    )
+                    .await
             }
         }
     }

@@ -271,6 +271,7 @@ metrics_exporter = {{ otlp-http = {{ endpoint = "{collector_url}/v1/metrics", pr
         )
         .env("NO_PROXY", "127.0.0.1,localhost")
         .env("no_proxy", "127.0.0.1,localhost")
+        .env("RUST_LOG", "error,codex_exec_server::remote=info")
         .args([
             "exec-server",
             "--remote",
@@ -290,9 +291,31 @@ metrics_exporter = {{ otlp-http = {{ endpoint = "{collector_url}/v1/metrics", pr
         .take()
         .ok_or_else(|| anyhow::anyhow!("remote exec-server stdin was not piped"))?;
 
-    let environment_websocket = accept_parent_lifetime_websocket(&listener, TEST_TIMEOUT)
-        .await
-        .context("remote executor failed to attach")?;
+    // An executor that exits during startup cannot reach the rendezvous. Report that
+    // exit immediately instead of hiding it behind the connection timeout.
+    let environment_websocket = tokio::select! {
+        status = child.wait() => {
+            let status = status.context("failed to wait for remote exec-server")?;
+            Err(anyhow::anyhow!("remote exec-server exited before connecting: {status}"))
+        }
+        result = accept_parent_lifetime_websocket(&listener, TEST_TIMEOUT) => result,
+    };
+    let environment_websocket = match environment_websocket {
+        Ok(websocket) => websocket,
+        Err(error) => {
+            let registration_requests = registry.received_requests().await.map(|requests| {
+                requests
+                    .iter()
+                    .filter(|request| request.url.path().ends_with("/register"))
+                    .count()
+            });
+            // Inspect only the stage reached, not request headers or bodies containing auth.
+            let child_status = child.try_wait();
+            return Err(error.context(format!(
+                "remote executor failed to attach (registration requests: {registration_requests:?}, child status: {child_status:?})"
+            )));
+        }
+    };
     // Remote startup must capture the version before registration, not on the first initialize.
     std::fs::write(&manifest, r#"{"version":"9.9.9"}"#)?;
     let executor_public_key = registered_parent_lifetime_executor_public_key(&registry).await?;

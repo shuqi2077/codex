@@ -16,6 +16,7 @@ use toml::Table;
 
 mod feature_configs;
 mod legacy;
+pub use feature_configs::AsyncCompactionConfigToml;
 pub use feature_configs::CodeModeConfigToml;
 pub use feature_configs::CodeModeHostConfigToml;
 pub use feature_configs::ContextManagementConfigToml;
@@ -274,6 +275,8 @@ pub enum Feature {
     Plugins,
     /// Discover selected-root plugin and skill manifests through one high-level exec-server RPC.
     ExecutorCapabilityDiscovery,
+    /// Acquire V2 executor inventories without publishing or activating their capabilities.
+    ExecutorCapabilityDiscoveryV2,
     /// Skip host skill snapshots when no registered contributor requires them.
     SkipHostSkillDiscovery,
     /// Removed compatibility flag for plugin-bundled lifecycle hooks.
@@ -419,6 +422,8 @@ pub enum Feature {
     PreventIdleSleep,
     /// Removed compatibility key, still advertised to the Responses API.
     RemoteCompactionV2,
+    /// Prepare remote compaction in the background before the foreground limit is reached.
+    AsyncCompaction,
     /// Include retained images in the remote compaction context budget.
     CompactionImageBudget,
     /// Retain client-authored developer messages across compacted context windows.
@@ -880,6 +885,8 @@ pub struct FeaturesToml {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_budget: Option<FeatureToml<TokenBudgetConfigToml>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub async_compaction: Option<FeatureToml<AsyncCompactionConfigToml>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_management: Option<FeatureToml<ContextManagementConfigToml>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rollout_budget: Option<FeatureToml<RolloutBudgetConfigToml>>,
@@ -906,6 +913,13 @@ impl Features {
 impl FeaturesToml {
     pub fn entries(&self) -> BTreeMap<String, bool> {
         let mut entries = self.entries.clone();
+        if let Some(enabled) = self
+            .async_compaction
+            .as_ref()
+            .and_then(FeatureToml::enabled)
+        {
+            entries.insert(Feature::AsyncCompaction.key().to_string(), enabled);
+        }
         if let Some(enabled) = self.code_mode.as_ref().and_then(FeatureToml::enabled) {
             entries.insert(Feature::CodeMode.key().to_string(), enabled);
         }
@@ -1399,14 +1413,14 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::CliDaybreak,
         key: "cli_daybreak",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
+        stage: Stage::Stable,
+        default_enabled: true,
     },
     FeatureSpec {
         id: Feature::ApiKeyCyberAccessPrograms,
         key: "api_key_cyber_access_programs",
         stage: Stage::Stable,
-        default_enabled: false,
+        default_enabled: true,
     },
     FeatureSpec {
         id: Feature::EnableRequestCompression,
@@ -1613,6 +1627,12 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::ExecutorCapabilityDiscovery,
         key: "executor_capability_discovery",
+        stage: Stage::UnderDevelopment,
+        default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::ExecutorCapabilityDiscoveryV2,
+        key: "executor_capability_discovery_v2",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },
@@ -2040,6 +2060,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         id: Feature::RemoteCompactionV2,
         key: "remote_compaction_v2",
         stage: Stage::Removed,
+        default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::AsyncCompaction,
+        key: "async_compaction",
+        stage: Stage::UnderDevelopment,
         default_enabled: false,
     },
     FeatureSpec {

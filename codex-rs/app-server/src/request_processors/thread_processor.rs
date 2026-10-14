@@ -30,6 +30,7 @@ use codex_protocol::SanitizedGitUrl;
 use codex_protocol::config_types::MultiAgentMode;
 use codex_protocol::error::CodexErrorDetails;
 use codex_protocol::mcp::ClientMcpExtensions;
+use codex_protocol::models::PermissionProfile;
 use codex_protocol::protocol::MultiAgentVersion;
 use codex_protocol::protocol::ThreadHistoryMode;
 use codex_thread_store::PersistContext;
@@ -96,6 +97,7 @@ struct ResumeConfigState {
     workspace_roots: Option<Vec<AbsolutePathBuf>>,
     persisted_metadata: Option<ThreadMetadata>,
     persisted_settings: Option<PersistedResumeSettings>,
+    persisted_permission_profile: Option<PermissionProfile>,
 }
 
 struct PreparedResumeConfig {
@@ -4131,7 +4133,7 @@ impl ThreadRequestProcessor {
         }
         let has_explicit_model_resume_override =
             has_model_resume_override(request_overrides.as_ref(), &typesafe_overrides);
-        let persisted_permission_profile = history_settings
+        typesafe_overrides.persisted_permission_profile = history_settings
             .filter(|settings| {
                 settings.active_permission_profile.is_none()
                     && !has_permission_override(request_overrides.as_ref(), &typesafe_overrides)
@@ -4170,6 +4172,7 @@ impl ThreadRequestProcessor {
             workspace_roots: typesafe_overrides.workspace_roots.clone(),
             persisted_metadata,
             persisted_settings,
+            persisted_permission_profile: typesafe_overrides.persisted_permission_profile.clone(),
         };
         let mut config = match prepared_config.take() {
             Some(prepared) if prepared.state == config_state => prepared.config,
@@ -4200,7 +4203,6 @@ impl ThreadRequestProcessor {
             .thread_manager
             .start_thread(StartThreadOptions {
                 initial_history: thread_history,
-                persisted_permission_profile,
                 parent_trace: match target {
                     ThreadResumeTarget::Client(request_id) => {
                         self.request_trace_context(request_id).await
@@ -5173,6 +5175,9 @@ impl ThreadRequestProcessor {
                 _ => internal_error(format!("failed to inherit parent state: {err}")),
             })?;
             options.config.ephemeral = ephemeral;
+            options
+                .thread_extension_init
+                .insert(codex_core::compact::AutoCompactionDisabled);
             options
                 .config
                 .features

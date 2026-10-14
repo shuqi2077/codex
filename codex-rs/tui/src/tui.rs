@@ -94,6 +94,8 @@ mod windows_console;
 #[cfg(any(windows, test))]
 mod windows_key_sequence;
 
+pub(crate) use selection_clipboard::SelectionCopy;
+
 /// Target frame interval for UI redraw scheduling.
 pub(crate) const TARGET_FRAME_INTERVAL: Duration = frame_rate_limiter::MIN_FRAME_INTERVAL;
 
@@ -662,6 +664,7 @@ pub struct Tui {
     frame_requester: FrameRequester,
     draw_tx: broadcast::Sender<()>,
     event_broker: Arc<EventBroker>,
+    pub(crate) terminal_size_tags: crate::terminal_size_telemetry::LaunchTags,
     pub(crate) terminal: Terminal,
     pending_history_lines: Vec<PendingHistoryLines>,
     clear_thread_switch_on_draw: bool,
@@ -739,6 +742,7 @@ impl Tui {
             frame_requester,
             draw_tx,
             event_broker: Arc::new(event_broker),
+            terminal_size_tags: Vec::new(),
             terminal,
             pending_history_lines: vec![],
             clear_thread_switch_on_draw: false,

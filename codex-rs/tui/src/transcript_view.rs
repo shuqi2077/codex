@@ -17,6 +17,7 @@ mod layout;
 mod mutations;
 mod prompt_header;
 mod search;
+mod select_mode;
 mod selection;
 mod snapshot;
 mod text;
@@ -29,6 +30,7 @@ use crate::history_cell::HistoryCell;
 use crate::history_cell::HistoryRenderMode;
 use crate::pager_overlay::TranscriptHistoryState;
 use crate::terminal_hyperlinks::HyperlinkLine;
+use crate::tui::SelectionCopy;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Stylize;
@@ -38,6 +40,7 @@ use ratatui::widgets::Widget;
 
 use layout::LayoutCache;
 use search::Search;
+use select_mode::SelectMode;
 use selection::Selection;
 use snapshot::ViewSnapshot;
 use text::TextLayout;
@@ -46,26 +49,6 @@ pub(crate) use bookmark::TranscriptBookmark;
 pub(crate) use input::JumpTarget;
 pub(crate) use input::ViewAction;
 pub(crate) use layout::ActivityTranscriptLines;
-
-/// Copy origin plus the deselection policy applied after confirmed delivery.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SelectionCopy {
-    Explicit,
-    OnSelect { clear_selection: bool },
-}
-
-impl SelectionCopy {
-    fn clear_selection(self) -> bool {
-        match self {
-            Self::Explicit => true,
-            Self::OnSelect { clear_selection } => clear_selection,
-        }
-    }
-
-    fn publishes_primary(self) -> bool {
-        matches!(self, Self::OnSelect { .. })
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum EntryKey {
@@ -126,6 +109,7 @@ pub(crate) struct TranscriptView {
     suppressed_prompt_header: Option<prompt_header::SuppressedHeader>,
     visible: Vec<VisibleRow>,
     selection: Option<Selection>,
+    select_mode: Option<SelectMode>,
     copy_mode: Option<copy_mode::CopyMode>,
     held_reading: Option<ViewSnapshot>,
     search: Search,
@@ -164,6 +148,7 @@ impl Default for TranscriptView {
             suppressed_prompt_header: None,
             visible: Vec::new(),
             selection: None,
+            select_mode: None,
             copy_mode: None,
             held_reading: None,
             search: Search::default(),
@@ -313,6 +298,7 @@ impl TranscriptView {
             self.unseen_activity = false;
         }
         self.render_selection(buf);
+        self.render_select_cursor(buf);
         if self.history == TranscriptHistoryState::LoadingBeginning && self.is_following() {
             self.scroll(current_cells, /*rows*/ 0);
         }
@@ -380,6 +366,7 @@ impl TranscriptView {
             return;
         }
         self.selection = None;
+        self.select_mode = None;
         self.copy_mode = None;
         self.release_live_reading();
         self.cache.clear();
@@ -397,7 +384,10 @@ impl TranscriptView {
     }
 
     pub(crate) fn has_active_interaction(&self) -> bool {
-        self.selection.is_some() || self.search.is_active() || self.is_activity_focused()
+        self.select_mode.is_some()
+            || self.selection.is_some()
+            || self.search.is_active()
+            || self.is_activity_focused()
     }
 
     pub(crate) fn is_detailed(&self) -> bool {
@@ -405,7 +395,7 @@ impl TranscriptView {
     }
 
     pub(crate) fn is_following(&self) -> bool {
-        self.selection.is_none() && self.position == Position::Latest
+        self.select_mode.is_none() && self.selection.is_none() && self.position == Position::Latest
     }
 
     /// Hold the current reading position until every older page has arrived.
@@ -426,6 +416,7 @@ impl TranscriptView {
         self.cancel_beginning();
         self.position = Position::Latest;
         self.selection = None;
+        self.select_mode = None;
         self.copy_mode = None;
         self.release_live_reading();
         self.unseen_activity = false;

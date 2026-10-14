@@ -314,13 +314,15 @@ impl ReviewerRequest for PreparedReview {
                 assessment.outcome == super::super::GuardianAssessmentOutcome::Allow
             })
             && let Some(authorization) = &self.params.authorization
-            && let Some(outcome) = authorization
+            && let Some(invalidation) = authorization
                 .invalidation(
                     &self.params.parent_session,
                     self.params.external_cancel.as_ref(),
                 )
                 .await
         {
+            let outcome = invalidation.outcome;
+            result.analytics.context_changed |= invalidation.context_changed;
             result.disposition =
                 if matches!(outcome, GuardianReviewSessionOutcome::StaleAuthorization)
                     && result.disposition == SessionDisposition::Reusable
@@ -378,7 +380,9 @@ pub(crate) async fn run_guardian_review_session(
                 Arc::make_mut(&mut prepared.context).reviewer_selection =
                     ReviewerSelection::FreshParentCheckpoint;
                 prepared.recovery_requested = Arc::default();
-                pool.review(prepared).await
+                let (outcome, mut analytics) = pool.review(prepared).await;
+                analytics.context_changed |= result.1.context_changed;
+                (outcome, analytics)
             } else {
                 result
             }

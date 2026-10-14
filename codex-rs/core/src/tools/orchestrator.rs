@@ -187,7 +187,8 @@ impl ToolOrchestrator {
                     tool_ctx
                         .session
                         .request_approval(action, approval_ctx)
-                        .await?;
+                        .await
+                        .result?;
                     already_approved = true;
                 } else {
                     otel.tool_decision(
@@ -220,7 +221,8 @@ impl ToolOrchestrator {
                 tool_ctx
                     .session
                     .request_approval(action, approval_ctx)
-                    .await?;
+                    .await
+                    .result?;
                 already_approved = true;
             }
         }
@@ -511,7 +513,8 @@ impl ToolOrchestrator {
                     tool_ctx
                         .session
                         .request_approval(action, approval_ctx)
-                        .await?;
+                        .await
+                        .result?;
                 }
 
                 let retry_sandbox_requested = !unsandboxed_allowed

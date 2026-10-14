@@ -119,10 +119,27 @@ async fn standalone_image_generation_returns_saved_path_hint_to_model(
         .with_env_overrides(&[("OPENAI_API_KEY", None)])
         .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
         .await?;
-    let turn_id = start_image_generation_turn(
+    let turn_id = start_turn(
         &mut mcp,
         ThreadStartParams {
             service_name: Some("chatgpt_cca".to_string()),
+            config: Some(
+                [(
+                    "responses_api_metadata".to_string(),
+                    json!({
+                        "display_name": "Image test 🚀",
+                    }),
+                )]
+                .into(),
+            ),
+            ..Default::default()
+        },
+        TurnStartParams {
+            input: vec![V2UserInput::Text {
+                text: "Generate an image".to_string(),
+                text_elements: Vec::new(),
+            }],
+            turn_trigger: Some("page_prompt".to_string()),
             ..Default::default()
         },
     )
@@ -183,6 +200,15 @@ async fn standalone_image_generation_returns_saved_path_hint_to_model(
         "chatgpt_cca"
     );
     assert_image_turn_id_header(&image_request, &turn_id)?;
+    let metadata = serde_json::from_str::<serde_json::Value>(
+        image_request
+            .headers
+            .get("x-codex-turn-metadata")
+            .context("image request should include the current turn metadata")?
+            .to_str()?,
+    )?;
+    assert_eq!(metadata["display_name"], "Image test 🚀");
+    assert_eq!(metadata["turn_trigger"], "page_prompt");
 
     let requests = response_mock.requests();
     assert_eq!(requests.len(), 2);
@@ -971,10 +997,13 @@ async fn start_image_generation_turn(
     start_turn(
         mcp,
         thread_start_params,
-        vec![V2UserInput::Text {
-            text: "Generate an image".to_string(),
-            text_elements: Vec::new(),
-        }],
+        TurnStartParams {
+            input: vec![V2UserInput::Text {
+                text: "Generate an image".to_string(),
+                text_elements: Vec::new(),
+            }],
+            ..Default::default()
+        },
     )
     .await
 }
@@ -1025,9 +1054,22 @@ async fn run_image_edit_test(
         &mut mcp,
         ThreadStartParams {
             service_name: Some("chatgpt_cca".to_string()),
+            config: Some(
+                [(
+                    "responses_api_metadata".to_string(),
+                    json!({
+                        "display_name": "Image edit test",
+                    }),
+                )]
+                .into(),
+            ),
             ..Default::default()
         },
-        input,
+        TurnStartParams {
+            input,
+            turn_trigger: Some("page_prompt".to_string()),
+            ..Default::default()
+        },
     )
     .await?;
     let completed = timeout(
@@ -1063,6 +1105,15 @@ async fn run_image_edit_test(
         "chatgpt_cca"
     );
     assert_image_turn_id_header(image_request, &turn_id)?;
+    let metadata = serde_json::from_str::<serde_json::Value>(
+        image_request
+            .headers
+            .get("x-codex-turn-metadata")
+            .context("image edit request should include the current turn metadata")?
+            .to_str()?,
+    )?;
+    assert_eq!(metadata["display_name"], "Image edit test");
+    assert_eq!(metadata["turn_trigger"], "page_prompt");
     Ok((
         image_request.body_json::<serde_json::Value>()?,
         completed_image,
@@ -1084,7 +1135,7 @@ fn assert_image_turn_id_header(request: &wiremock::Request, expected_turn_id: &s
 async fn start_turn(
     mcp: &mut TestAppServer,
     thread_start_params: ThreadStartParams,
-    input: Vec<V2UserInput>,
+    turn_start_params: TurnStartParams,
 ) -> Result<String> {
     let thread_req = mcp
         .send_thread_start_request_with_auto_env(thread_start_params)
@@ -1095,9 +1146,7 @@ async fn start_turn(
     let turn_req = mcp
         .send_turn_start_request(TurnStartParams {
             thread_id: thread.id,
-            client_user_message_id: None,
-            input,
-            ..Default::default()
+            ..turn_start_params
         })
         .await?;
     let TurnStartResponse { turn } =

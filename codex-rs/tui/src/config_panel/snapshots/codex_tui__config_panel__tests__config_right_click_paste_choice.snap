@@ -2,8 +2,9 @@
 source: tui/src/config_panel/config_panel_tests.rs
 expression: "render(&picker, 100)"
 ---
+
   Right-click paste
-  Paste when nothing is selected. Auto follows the platform default; On also enables macOS.
+  Paste when nothing is selected, with Auto following platform defaults and On also enabling macOS
 
 
 › 1. Auto (default) (current)

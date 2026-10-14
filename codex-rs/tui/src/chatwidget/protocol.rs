@@ -102,7 +102,11 @@ impl ChatWidget {
                 self.last_non_retry_error = None;
                 if !matches!(replay_kind, Some(ReplayKind::ResumeInitialMessages)) {
                     self.warning_display_state.startup_complete = true;
-                    self.on_task_started();
+                    if from_replay {
+                        self.on_replayed_task_started(notification.turn.started_at);
+                    } else {
+                        self.on_task_started();
+                    }
                 }
             }
             ServerNotification::TurnCompleted(notification) => {

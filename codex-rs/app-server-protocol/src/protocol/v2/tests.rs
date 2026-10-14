@@ -5089,6 +5089,7 @@ fn turn_start_params_preserve_explicit_null_service_tier() {
         root_turn_id: None,
         tool_output: None,
         responsesapi_client_metadata: None,
+        responsesapi_client_metadata_patch: None,
         additional_context: None,
         environments: None,
         cwd: None,

@@ -46,6 +46,8 @@ use image::Luma;
 use image::Rgba;
 use pretty_assertions::assert_eq;
 use regex_lite::Regex;
+use serde_json::from_value;
+use serde_json::json;
 use test_case::test_case;
 
 const EXEC_FORMAT_MAX_BYTES: usize = 10_000;
@@ -1297,6 +1299,10 @@ fn for_prompt_strips_media_when_model_does_not_support_it() {
                         ContentItemKind("audio.unsupported".to_string()),
                         ContentItemKind("user.text".to_string()),
                     ]),
+                    content_item_metadata: from_value(json!([
+                        {}, {"harness_injected": true}, {"harness_injected": true}, {}
+                    ]))
+                    .unwrap(),
                     ..Default::default()
                 },
             ),
@@ -3255,6 +3261,27 @@ fn passthrough_metadata_does_not_change_context_estimates() {
             assert_eq!(estimate_response_item_model_visible_bytes(&item), before);
             item.clear_internal_chat_message_metadata_passthrough();
             assert_eq!(item, original);
+        }
+    }
+}
+
+#[test]
+fn encrypted_compactions_use_replay_cache_estimate() {
+    for (encoded_len, expected_tokens) in [(0, 0), (1, 1), (11, 1), (12, 1), (13, 2), (8_000, 667)]
+    {
+        for item in [
+            ResponseItem::Compaction {
+                id: None,
+                encrypted_content: "a".repeat(encoded_len),
+                internal_chat_message_metadata_passthrough: None,
+            },
+            ResponseItem::ContextCompaction {
+                id: None,
+                encrypted_content: Some("a".repeat(encoded_len)),
+                internal_chat_message_metadata_passthrough: None,
+            },
+        ] {
+            assert_eq!(estimate_item_token_count(&item), expected_tokens);
         }
     }
 }

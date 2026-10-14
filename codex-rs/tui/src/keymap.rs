@@ -1719,8 +1719,16 @@ impl RuntimeKeymap {
                     raw(KeyBinding::new(KeyCode::Right, KeyModifiers::ALT)),
                     raw(KeyBinding::new(KeyCode::Right, KeyModifiers::CONTROL))
                 ],
-                move_line_start: default_bindings![plain(KeyCode::Home), ctrl(KeyCode::Char('a'))],
-                move_line_end: default_bindings![plain(KeyCode::End), ctrl(KeyCode::Char('e'))],
+                move_line_start: default_bindings![
+                    plain(KeyCode::Home),
+                    ctrl(KeyCode::Char('a')),
+                    raw(KeyBinding::new(KeyCode::Left, KeyModifiers::SUPER))
+                ],
+                move_line_end: default_bindings![
+                    plain(KeyCode::End),
+                    ctrl(KeyCode::Char('e')),
+                    raw(KeyBinding::new(KeyCode::Right, KeyModifiers::SUPER))
+                ],
                 delete_backward: default_bindings![
                     plain(KeyCode::Backspace),
                     shift(KeyCode::Backspace),
@@ -1753,7 +1761,10 @@ impl RuntimeKeymap {
                     )),
                     alt(KeyCode::Char('d'))
                 ],
-                kill_line_start: default_bindings![ctrl(KeyCode::Char('u'))],
+                kill_line_start: default_bindings![
+                    ctrl(KeyCode::Char('u')),
+                    raw(KeyBinding::new(KeyCode::Backspace, KeyModifiers::SUPER))
+                ],
                 kill_whole_line: default_bindings![],
                 kill_line_end: default_bindings![ctrl(KeyCode::Char('k'))],
                 yank: default_bindings![ctrl(KeyCode::Char('y'))],
@@ -2681,6 +2692,7 @@ fn parse_keybinding(spec: &str) -> Option<KeyBinding> {
             "ctrl" => modifiers |= KeyModifiers::CONTROL,
             "alt" => modifiers |= KeyModifiers::ALT,
             "shift" => modifiers |= KeyModifiers::SHIFT,
+            "super" => modifiers |= KeyModifiers::SUPER,
             other => {
                 key_name = Some(other.to_string());
                 break;
@@ -2742,11 +2754,11 @@ mod tests {
 
     #[test]
     fn parses_canonical_binding() {
-        let binding = parse_keybinding("ctrl-alt-shift-a").expect("binding should parse");
+        let binding = parse_keybinding("ctrl-alt-shift-super-a").expect("binding should parse");
         assert_eq!(binding.parts().0, KeyCode::Char('a'));
         assert_eq!(
             binding.parts().1,
-            KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SHIFT
+            KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SHIFT | KeyModifiers::SUPER
         );
     }
 

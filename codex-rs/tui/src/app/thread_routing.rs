@@ -532,10 +532,7 @@ impl App {
 
         crate::session_log::log_outbound_op(&op);
 
-        if self
-            .try_resolve_app_server_request(app_server, thread_id, &op)
-            .await?
-        {
+        if self.try_resolve_app_server_request(thread_id, &op).await? {
             return Ok(());
         }
 
@@ -927,6 +924,13 @@ impl App {
                 Ok(true)
             }
             AppCommand::ListSkills { cwds, force_reload } => {
+                // A queued refresh can outlive the workspace it was requested for.
+                if !cwds
+                    .iter()
+                    .any(|cwd| cwd == self.chat_widget.config_ref().cwd.as_path())
+                {
+                    return Ok(true);
+                }
                 self.handle_skills_list_result(
                     app_server
                         .skills_list(codex_app_server_protocol::SkillsListParams {
@@ -1090,37 +1094,33 @@ impl App {
 
     pub(super) async fn try_resolve_app_server_request(
         &mut self,
-        app_server: &AppServerSession,
         thread_id: ThreadId,
         op: &AppCommand,
     ) -> Result<bool> {
         let Some(resolution) = self
             .pending_app_server_requests
-            .take_resolution(&thread_id.to_string(), op)
+            .take_resolution_record(&thread_id.to_string(), op)
             .map_err(|err| color_eyre::eyre::eyre!(err))?
         else {
             return Ok(false);
         };
+        let Some(reply) = resolution.request.reply else {
+            return Err(color_eyre::eyre::eyre!(
+                "Missing original app-server connection for pending request"
+            ));
+        };
 
-        match app_server
-            .resolve_server_request(resolution.request_id, resolution.result)
-            .await
-        {
-            Ok(()) => {
-                if ThreadEventStore::op_can_change_pending_replay_state(op) {
-                    self.note_thread_outbound_op(thread_id, op).await;
-                    self.refresh_pending_thread_approvals().await;
-                    self.refresh_side_parent_status_from_store(thread_id).await;
-                }
-                Ok(true)
-            }
-            Err(err) => {
-                self.chat_widget.add_error_message(format!(
-                    "Failed to resolve app-server request for thread {thread_id}: {err}"
-                ));
-                Ok(false)
-            }
+        if let Err(err) = reply.resolve(resolution.result).await {
+            self.chat_widget.add_error_message(format!(
+                "Failed to resolve app-server request for thread {thread_id}: {err}"
+            ));
         }
+        if ThreadEventStore::op_can_change_pending_replay_state(op) {
+            self.note_thread_outbound_op(thread_id, op).await;
+            self.refresh_pending_thread_approvals().await;
+            self.refresh_side_parent_status_from_store(thread_id).await;
+        }
+        Ok(true)
     }
 
     pub(super) async fn refresh_pending_thread_approvals(&mut self) {
@@ -2066,6 +2066,23 @@ impl App {
     }
 
     pub(super) fn handle_thread_event_now(&mut self, event: ThreadBufferedEvent) {
+        // Replay has its own handler; suppress repeated notifications for the current turn.
+        if crate::terminal_size_telemetry::enabled(&self.config)
+            && !self.terminal_size_tags.is_empty()
+            && let ThreadBufferedEvent::Notification(notification) = &event
+            && let ServerNotification::TurnStarted(started) = notification.as_ref()
+            && self
+                .active_thread_id
+                .is_some_and(|id| id.to_string() == started.thread_id)
+            && self.chat_widget.last_turn_id() != Some(started.turn.id.as_str())
+        {
+            crate::terminal_size_telemetry::record(
+                &self.terminal_size_tags,
+                &self.config,
+                "turn_start",
+                crate::terminal_size_telemetry::read_size(),
+            );
+        }
         let needs_refresh = matches!(
             &event,
             ThreadBufferedEvent::Notification(notification)
